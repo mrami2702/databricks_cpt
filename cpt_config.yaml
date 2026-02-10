@@ -1,0 +1,96 @@
+# Continual Pretraining Configuration
+# ====================================
+
+model:
+  # Base model to continue pretraining
+  # Options: microsoft/phi-3-mini-4k-instruct, meta-llama/Llama-3.2-3B, mistralai/Mistral-7B-v0.1
+  name: "microsoft/phi-3-mini-4k-instruct"
+  
+  # Use Flash Attention 2 if available (requires compatible GPU)
+  use_flash_attention: true
+
+training:
+  # Learning rate - CRITICAL for CPT
+  # Much lower than pretraining (which uses ~1e-4)
+  # This prevents catastrophic forgetting
+  learning_rate: 2.0e-5
+  
+  # LR schedule
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  
+  # Training duration
+  num_epochs: 2
+  max_steps: -1  # -1 = use num_epochs
+  
+  # Batch size (adjust based on your GPU memory)
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8  # Effective batch = 2 * 8 = 16
+  
+  # Sequence length
+  max_seq_length: 2048
+  
+  # Optimization
+  optim: "adamw_torch"
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Mixed precision
+  bf16: true  # Use bf16 if supported, else fp16
+  
+  # Checkpointing
+  save_strategy: "steps"
+  save_steps: 500
+  save_total_limit: 3
+
+qlora:
+  # QLoRA configuration for memory efficiency
+  enabled: true
+  
+  # Quantization
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: "bfloat16"
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  
+  # LoRA parameters
+  lora_r: 64           # Rank - higher = more capacity but more memory
+  lora_alpha: 128      # Scaling factor (usually 2x rank)
+  lora_dropout: 0.05
+  target_modules:      # Which layers to adapt
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+data:
+  # Paths (relative to project root)
+  train_file: "data/train.jsonl"
+  val_file: "data/val.jsonl"
+  
+  # Replay data for preventing catastrophic forgetting
+  # Mix general data with domain data
+  replay_ratio: 0.2  # 20% general data, 80% domain data
+  replay_dataset: "cerebras/SlimPajama-627B"  # HuggingFace dataset for replay
+  replay_max_samples: 10000  # Limit replay samples
+  
+  # Preprocessing
+  text_column: "text"
+
+output:
+  # Where to save the model
+  output_dir: "./outputs/cpt_model"
+  
+  # Logging
+  logging_steps: 10
+  report_to: "mlflow"  # Options: mlflow, tensorboard, wandb, none
+
+mlflow:
+  experiment_name: "continual-pretraining-poc"
+  run_name: null  # Auto-generated if null
+  tags:
+    project: "cpt-poc"
+    model_type: "phi-3-mini"
