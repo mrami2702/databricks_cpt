@@ -27,8 +27,10 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from datasets import load_dataset, concatenate_datasets
 import mlflow
 
-from dotenv import load_dotenv
-load_dotenv()
+
+def is_databricks():
+    """Check if running on Databricks."""
+    return "DATABRICKS_RUNTIME_VERSION" in os.environ
 
 
 def load_config(config_path: str) -> dict:
@@ -40,16 +42,18 @@ def load_config(config_path: str) -> dict:
 def setup_mlflow(config: dict):
     """Initialize MLflow experiment tracking."""
     mlflow_config = config.get("mlflow", {})
-    
-    # Set tracking URI (defaults to local ./mlruns)
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
-    mlflow.set_tracking_uri(tracking_uri)
-    
+
+    if is_databricks():
+        # Databricks auto-configures MLflow tracking URI
+        print("Databricks detected — MLflow tracking auto-configured")
+    else:
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
+        mlflow.set_tracking_uri(tracking_uri)
+        print(f"MLflow tracking URI: {tracking_uri}")
+
     # Set experiment
     experiment_name = mlflow_config.get("experiment_name", "continual-pretraining")
     mlflow.set_experiment(experiment_name)
-    
-    print(f"MLflow tracking URI: {tracking_uri}")
     print(f"MLflow experiment: {experiment_name}")
 
 
@@ -122,22 +126,58 @@ def load_base_model(config: dict):
     return model, tokenizer
 
 
+def load_from_unity_catalog(table_name: str, text_column: str = "text"):
+    """
+    Load a Unity Catalog table as a HuggingFace Dataset.
+
+    Args:
+        table_name: Fully qualified table name (catalog.schema.table)
+        text_column: Column containing the text content
+
+    Returns:
+        HuggingFace Dataset
+    """
+    from pyspark.sql import SparkSession
+    from datasets import Dataset
+
+    spark = SparkSession.builder.getOrCreate()
+    df = spark.table(table_name)
+
+    # Select text column and convert to pandas, then to HuggingFace Dataset
+    pdf = df.select(text_column).toPandas()
+    pdf = pdf.rename(columns={text_column: "text"})
+    pdf = pdf.dropna(subset=["text"])
+
+    return Dataset.from_pandas(pdf)
+
+
 def prepare_datasets(config: dict, tokenizer):
     """
     Load and prepare training datasets with replay mixing.
-    
+    Reads from Unity Catalog tables if configured, otherwise falls back to local JSONL.
+
     Returns:
         train_dataset: Tokenized training dataset
         eval_dataset: Tokenized validation dataset
     """
     data_config = config["data"]
     training_config = config["training"]
-    
-    # Load domain data
-    print(f"Loading domain data from {data_config['train_file']}...")
-    domain_train = load_dataset("json", data_files=data_config["train_file"], split="train")
-    domain_val = load_dataset("json", data_files=data_config["val_file"], split="train")
-    
+    text_column = data_config.get("text_column", "text")
+
+    # Load domain data — Unity Catalog or local JSONL
+    train_table = data_config.get("train_table")
+    val_table = data_config.get("val_table")
+
+    if train_table and val_table and is_databricks():
+        print(f"Loading training data from Unity Catalog: {train_table}")
+        domain_train = load_from_unity_catalog(train_table, text_column)
+        print(f"Loading validation data from Unity Catalog: {val_table}")
+        domain_val = load_from_unity_catalog(val_table, text_column)
+    else:
+        print(f"Loading domain data from {data_config['train_file']}...")
+        domain_train = load_dataset("json", data_files=data_config["train_file"], split="train")
+        domain_val = load_dataset("json", data_files=data_config["val_file"], split="train")
+
     print(f"Domain train: {len(domain_train)} samples")
     print(f"Domain val: {len(domain_val)} samples")
     
@@ -267,7 +307,7 @@ def create_training_arguments(config: dict) -> TrainingArguments:
     )
 
 
-def train(config_path: str = "configs/cpt_config.yaml"):
+def train(config_path: str = "cpt_config.yaml"):
     """
     Main training function.
     
@@ -359,7 +399,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run continual pretraining")
     parser.add_argument(
         "--config",
-        default="configs/cpt_config.yaml",
+        default="cpt_config.yaml",
         help="Path to configuration file"
     )
     

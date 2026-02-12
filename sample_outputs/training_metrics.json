@@ -1,0 +1,56 @@
+{
+  "run_id": "a1b2c3d4e5f6789012345678",
+  "experiment_name": "continual-pretraining-poc",
+  "model_name": "microsoft/phi-3-mini-4k-instruct",
+  "status": "FINISHED",
+  "start_time": "2026-02-11T10:00:00Z",
+  "end_time": "2026-02-11T12:45:00Z",
+  "duration_minutes": 165,
+  "params": {
+    "model_name": "microsoft/phi-3-mini-4k-instruct",
+    "learning_rate": 2e-5,
+    "num_epochs": 2,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 8,
+    "effective_batch_size": 16,
+    "max_seq_length": 2048,
+    "lora_r": 64,
+    "lora_alpha": 128,
+    "replay_ratio": 0.2,
+    "quantization": "4bit-nf4"
+  },
+  "training_log": [
+    {"step": 10, "train_loss": 2.847, "learning_rate": 4.0e-6},
+    {"step": 20, "train_loss": 2.612, "learning_rate": 8.0e-6},
+    {"step": 50, "train_loss": 2.341, "learning_rate": 1.6e-5},
+    {"step": 100, "train_loss": 2.156, "learning_rate": 2.0e-5},
+    {"step": 200, "train_loss": 1.923, "learning_rate": 1.95e-5},
+    {"step": 300, "train_loss": 1.784, "learning_rate": 1.82e-5},
+    {"step": 400, "train_loss": 1.691, "learning_rate": 1.63e-5},
+    {"step": 500, "train_loss": 1.634, "learning_rate": 1.41e-5, "eval_loss": 1.712, "eval_perplexity": 5.54},
+    {"step": 600, "train_loss": 1.589, "learning_rate": 1.18e-5},
+    {"step": 700, "train_loss": 1.552, "learning_rate": 9.5e-6},
+    {"step": 800, "train_loss": 1.528, "learning_rate": 7.1e-6},
+    {"step": 900, "train_loss": 1.507, "learning_rate": 4.9e-6},
+    {"step": 1000, "train_loss": 1.491, "learning_rate": 2.9e-6, "eval_loss": 1.538, "eval_perplexity": 4.66}
+  ],
+  "final_metrics": {
+    "train_loss": 1.491,
+    "eval_loss": 1.538,
+    "eval_perplexity": 4.66,
+    "train_samples": 4800,
+    "eval_samples": 252,
+    "total_steps": 1000,
+    "trainable_parameters": "39.7M",
+    "total_parameters": "3.8B",
+    "trainable_percent": "1.04%"
+  },
+  "artifacts": {
+    "model_path": "/dbfs/mnt/models/cpt_model",
+    "mlflow_artifact": "runs:/a1b2c3d4e5f6789012345678/model",
+    "checkpoints": [
+      "/dbfs/mnt/models/cpt_model/checkpoint-500",
+      "/dbfs/mnt/models/cpt_model/checkpoint-1000"
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "task": "Predict neutron flux distribution in reactor core simulations for safety analysis",
+  "models_evaluated": [
+    {
+      "name": "neutron_flux_predictor_xgboost",
+      "version": "3",
+      "stage": "Staging",
+      "metrics": {
+        "rmse": 0.0234,
+        "mae": 0.0187,
+        "r2": 0.9342,
+        "inference_latency_ms": 12.4
+      }
+    },
+    {
+      "name": "neutron_flux_predictor_nn",
+      "version": "2",
+      "stage": "Staging",
+      "metrics": {
+        "rmse": 0.0198,
+        "mae": 0.0156,
+        "r2": 0.9521,
+        "inference_latency_ms": 45.2
+      }
+    },
+    {
+      "name": "neutron_flux_predictor_linear",
+      "version": "1",
+      "stage": "Production",
+      "metrics": {
+        "rmse": 0.0412,
+        "mae": 0.0334,
+        "r2": 0.8756,
+        "inference_latency_ms": 2.1
+      }
+    }
+  ],
+  "recommendation": "**Recommendation: neutron_flux_predictor_nn (v2)**\n\nThe neural network model should be promoted to Production for the neutron flux prediction task.\n\n**Justification:**\n- Achieves the best accuracy across all metrics: RMSE 0.0198 (15.4% better than XGBoost, 51.9% better than linear), MAE 0.0156, and R2 0.9521\n- For safety-critical reactor simulations, prediction accuracy is the primary concern — the 15% improvement in RMSE over XGBoost is significant\n- R2 of 0.9521 indicates the model explains 95.2% of variance in neutron flux distributions\n\n**Acceptance Criteria Met:**\n- R2 > 0.90 threshold: YES (0.9521)\n- RMSE < 0.03 threshold: YES (0.0198)\n- Inference latency < 100ms: YES (45.2ms)\n\n**Risks/Considerations:**\n- Inference latency (45.2ms) is 3.6x higher than XGBoost (12.4ms). For batch simulation runs this is acceptable, but if real-time monitoring is needed, consider the XGBoost model as a fallback\n- The neural network has more parameters (4 hidden layers, 256 units) — monitor for overfitting on edge cases in reactor configurations not well-represented in training data\n- Recommend A/B testing against the current production linear model for 2 weeks before full cutover\n- Set up drift detection with 2 standard deviation threshold on input feature distributions",
+  "generated_by": "cpt-phi-3-mini-domain-adapted",
+  "timestamp": "2026-02-11T13:30:00Z"
+}

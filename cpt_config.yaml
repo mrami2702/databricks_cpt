@@ -67,21 +67,28 @@ qlora:
     - "down_proj"
 
 data:
-  # Paths (relative to project root)
+  # Unity Catalog tables (used on Databricks)
+  # Set these to read directly from Unity Catalog instead of local files
+  train_table: null  # e.g. "my_catalog.my_schema.train_documents"
+  val_table: null    # e.g. "my_catalog.my_schema.val_documents"
+
+  # Local file paths (fallback when tables are not set)
   train_file: "data/train.jsonl"
   val_file: "data/val.jsonl"
-  
+
   # Replay data for preventing catastrophic forgetting
   # Mix general data with domain data
   replay_ratio: 0.2  # 20% general data, 80% domain data
   replay_dataset: "cerebras/SlimPajama-627B"  # HuggingFace dataset for replay
   replay_max_samples: 10000  # Limit replay samples
-  
+
   # Preprocessing
   text_column: "text"
 
 output:
   # Where to save the model
+  # Local: "./outputs/cpt_model"
+  # Databricks: "/dbfs/mnt/models/cpt_model"
   output_dir: "./outputs/cpt_model"
   
   # Logging

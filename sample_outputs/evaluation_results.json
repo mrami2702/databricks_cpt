@@ -1,0 +1,54 @@
+{
+  "base_model": "microsoft/phi-3-mini-4k-instruct",
+  "cpt_model": "/dbfs/mnt/models/cpt_model",
+  "evaluation_date": "2026-02-11T13:00:00Z",
+  "domain_perplexity": {
+    "base": {
+      "perplexity": 8.42,
+      "avg_loss": 2.131,
+      "std_loss": 0.34,
+      "num_samples": 252,
+      "total_tokens": 48920
+    },
+    "cpt": {
+      "perplexity": 4.66,
+      "avg_loss": 1.538,
+      "std_loss": 0.21,
+      "num_samples": 252,
+      "total_tokens": 48920
+    },
+    "improvement_percent": 44.7
+  },
+  "generation_comparisons": [
+    {
+      "prompt": "When selecting a model from MLflow for production deployment, the key criteria to evaluate are",
+      "base_response": "the model's accuracy and its ability to generalize to new data. Machine learning models should be tested thoroughly before deployment to ensure they meet performance standards.",
+      "cpt_response": "1) Performance Metrics: The model must meet minimum thresholds for the primary metric - for classification F1 > 0.80 or AUC > 0.85. 2) Inference Latency: P99 latency must be under 100ms for real-time serving endpoints. 3) Model Size: For edge deployment, artifacts must be under 500MB. 4) Data Drift Sensitivity: Models should include drift detection thresholds, flagging for retraining when feature distributions shift beyond 2 standard deviations."
+    },
+    {
+      "prompt": "The XGBoost model achieved the following performance metrics on the validation set:",
+      "base_response": "the model was evaluated using standard classification metrics including accuracy, precision, and recall on a held-out validation dataset.",
+      "cpt_response": "F1 score of 0.847, representing a 12% improvement over the baseline logistic regression model. Precision: 0.82, Recall: 0.88, AUC-ROC: 0.91. The model shows strong performance on the majority class but exhibits some degradation on minority classes. Feature importance analysis reveals transaction_amount and time_since_last_activity as the top predictors."
+    },
+    {
+      "prompt": "To prevent catastrophic forgetting during continual pretraining, we recommend",
+      "base_response": "using techniques such as elastic weight consolidation or progressive neural networks that help retain previously learned knowledge while learning new tasks.",
+      "cpt_response": "mixing 20% general-purpose replay data (e.g., SlimPajama) with 80% domain data during training. Additionally, use a low learning rate (2e-5 vs 1e-4 for pretraining) with cosine decay, and apply QLoRA to limit the number of modified parameters. Monitor both domain perplexity improvement and general capability retention throughout training."
+    },
+    {
+      "prompt": "The acceptance criteria for promoting a model from staging to production include",
+      "base_response": "passing all required tests and meeting the performance benchmarks set by the team before the model can be moved to a production environment.",
+      "cpt_response": "1) Models must pass unit tests and be registered to Staging. 2) Champion/Challenger evaluation runs automatically comparing against the current production model. 3) Human approval is required before Production promotion. 4) The previous production model moves to Archived. Additionally, minimum metric thresholds must be met (F1 > 0.80 for classification), P99 inference latency under 100ms, and drift detection thresholds must be configured."
+    },
+    {
+      "prompt": "Comparing the LSTM and Transformer architectures for this use case,",
+      "base_response": "both architectures have their strengths. LSTMs are good for sequential data while Transformers can capture long-range dependencies more effectively through attention mechanisms.",
+      "cpt_response": "the Transformer (4 attention heads, 64 dim) achieves the best accuracy with MAE: 0.038 and RMSE: 0.059, but at significant compute cost (2 hours training). The LSTM (2 layers, 128 units) offers MAE: 0.043 and RMSE: 0.067 with only 45 minutes training time. For production requirements where daily retraining is needed, the LSTM offers the best accuracy/compute tradeoff."
+    }
+  ],
+  "summary": {
+    "domain_perplexity_improvement": "44.7%",
+    "verdict": "SUCCESS: Significant domain adaptation achieved",
+    "notes": "CPT model produces domain-specific responses with concrete metrics and actionable recommendations, while base model gives generic answers."
+  }
+}
