@@ -152,12 +152,13 @@ def find_text_column(spark_df, preferred_column: str = "text"):
     return None
 
 
-def load_catalog_from_unity_catalog(catalog: str, text_column: str = "text"):
+def load_schema_from_unity_catalog(catalog: str, schema: str, text_column: str = "text"):
     """
-    Load ALL tables from ALL schemas in a Unity Catalog as a single HuggingFace Dataset.
+    Load ALL tables from a specific schema in Unity Catalog as a single HuggingFace Dataset.
 
     Args:
         catalog: Unity Catalog catalog name
+        schema: Schema name within the catalog
         text_column: Preferred text column name (auto-detects if not found)
 
     Returns:
@@ -169,44 +170,40 @@ def load_catalog_from_unity_catalog(catalog: str, text_column: str = "text"):
 
     spark = SparkSession.builder.getOrCreate()
 
-    # List all schemas in the catalog
-    schemas = [s.name for s in spark.catalog.listDatabases(catalog)]
-    print(f"Found {len(schemas)} schemas in catalog '{catalog}': {schemas}")
+    # List all tables in the schema
+    tables = spark.catalog.listTables(f"{catalog}.{schema}")
+    table_names = [t.name for t in tables]
+    print(f"Found {len(table_names)} tables in {catalog}.{schema}: {table_names}")
 
     all_texts = []
 
-    for schema in schemas:
-        tables = spark.catalog.listTables(f"{catalog}.{schema}")
-        table_names = [t.name for t in tables]
-        print(f"\n  Schema '{schema}': {len(table_names)} tables")
+    for table_name in table_names:
+        full_table = f"{catalog}.{schema}.{table_name}"
+        try:
+            df = spark.table(full_table)
+            col = find_text_column(df, text_column)
 
-        for table_name in table_names:
-            full_table = f"{catalog}.{schema}.{table_name}"
-            try:
-                df = spark.table(full_table)
-                col = find_text_column(df, text_column)
-
-                if col is None:
-                    print(f"    Skipping {table_name} — no text column found")
-                    continue
-
-                pdf = df.select(col).toPandas()
-                pdf = pdf.rename(columns={col: "text"})
-                pdf = pdf.dropna(subset=["text"])
-                pdf = pdf[pdf["text"].str.strip().astype(bool)]
-
-                print(f"    {table_name}: {len(pdf)} rows (column: '{col}')")
-                all_texts.append(pdf)
-
-            except Exception as e:
-                print(f"    Skipping {table_name} — error: {e}")
+            if col is None:
+                print(f"  Skipping {table_name} — no text column found")
                 continue
 
+            pdf = df.select(col).toPandas()
+            pdf = pdf.rename(columns={col: "text"})
+            pdf = pdf.dropna(subset=["text"])
+            pdf = pdf[pdf["text"].str.strip().astype(bool)]
+
+            print(f"  {table_name}: {len(pdf)} rows (column: '{col}')")
+            all_texts.append(pdf)
+
+        except Exception as e:
+            print(f"  Skipping {table_name} — error: {e}")
+            continue
+
     if not all_texts:
-        raise ValueError(f"No text data found in any table in catalog '{catalog}'")
+        raise ValueError(f"No text data found in any table in {catalog}.{schema}")
 
     combined = pd.concat(all_texts, ignore_index=True)
-    print(f"\nTotal rows loaded from catalog: {len(combined)}")
+    print(f"\nTotal rows loaded: {len(combined)}")
 
     return Dataset.from_pandas(combined)
 
@@ -226,10 +223,11 @@ def prepare_datasets(config: dict, tokenizer):
 
     # Load domain data — Unity Catalog or local JSONL
     catalog = data_config.get("catalog")
+    schema = data_config.get("schema")
 
-    if catalog and is_databricks():
-        print(f"Loading all data from Unity Catalog: {catalog}")
-        full_dataset = load_catalog_from_unity_catalog(catalog, text_column)
+    if catalog and schema and is_databricks():
+        print(f"Loading all data from {catalog}.{schema}")
+        full_dataset = load_schema_from_unity_catalog(catalog, schema, text_column)
 
         # Split into train/val
         val_ratio = data_config.get("val_ratio", 0.05)

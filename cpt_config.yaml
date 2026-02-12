@@ -68,8 +68,9 @@ qlora:
 
 data:
   # Unity Catalog (used on Databricks)
-  # Set catalog name to load ALL tables from ALL schemas in the catalog
-  catalog: null  # e.g. "my_catalog"
+  # Loads ALL tables from the specified catalog.schema
+  catalog: "dev_europa"
+  schema: "gold_roses"
   val_ratio: 0.05   # Fraction of data held out for validation
 
   # Local file paths (fallback when tables are not set)

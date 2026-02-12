@@ -59,9 +59,9 @@ config = {
         "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     },
     "data": {
-        # UPDATE THIS with your Unity Catalog catalog name
-        # All tables from all schemas in this catalog will be loaded
-        "catalog": "my_catalog",
+        # Unity Catalog source — all tables in this schema will be loaded
+        "catalog": "dev_europa",
+        "schema": "gold_roses",
         "val_ratio": 0.05,
         "text_column": "text",
         "replay_ratio": 0.2,
@@ -94,6 +94,7 @@ from datasets import Dataset
 import pandas as pd
 
 catalog = config["data"]["catalog"]
+schema = config["data"]["schema"]
 text_column = config["data"]["text_column"]
 val_ratio = config["data"]["val_ratio"]
 
@@ -116,37 +117,33 @@ def find_text_column(spark_df, preferred_column="text"):
     return None
 
 
-# Load ALL tables from ALL schemas in the catalog
-schemas = [s.name for s in spark.catalog.listDatabases(catalog)]
-print(f"Found {len(schemas)} schemas in catalog '{catalog}': {schemas}")
+# Load ALL tables from dev_europa.gold_roses
+tables = spark.catalog.listTables(f"{catalog}.{schema}")
+table_names = [t.name for t in tables]
+print(f"Found {len(table_names)} tables in {catalog}.{schema}: {table_names}")
 
 all_texts = []
 
-for schema in schemas:
-    tables = spark.catalog.listTables(f"{catalog}.{schema}")
-    table_names = [t.name for t in tables]
-    print(f"\n  Schema '{schema}': {len(table_names)} tables")
-
-    for table_name in table_names:
-        full_table = f"{catalog}.{schema}.{table_name}"
-        try:
-            df = spark.table(full_table)
-            col = find_text_column(df, text_column)
-            if col is None:
-                print(f"    Skipping {table_name} — no text column found")
-                continue
-            pdf = df.select(col).toPandas()
-            pdf = pdf.rename(columns={col: "text"})
-            pdf = pdf.dropna(subset=["text"])
-            pdf = pdf[pdf["text"].str.strip().astype(bool)]
-            print(f"    {table_name}: {len(pdf)} rows (column: '{col}')")
-            all_texts.append(pdf)
-        except Exception as e:
-            print(f"    Skipping {table_name} — error: {e}")
+for table_name in table_names:
+    full_table = f"{catalog}.{schema}.{table_name}"
+    try:
+        df = spark.table(full_table)
+        col = find_text_column(df, text_column)
+        if col is None:
+            print(f"  Skipping {table_name} — no text column found")
             continue
+        pdf = df.select(col).toPandas()
+        pdf = pdf.rename(columns={col: "text"})
+        pdf = pdf.dropna(subset=["text"])
+        pdf = pdf[pdf["text"].str.strip().astype(bool)]
+        print(f"  {table_name}: {len(pdf)} rows (column: '{col}')")
+        all_texts.append(pdf)
+    except Exception as e:
+        print(f"  Skipping {table_name} — error: {e}")
+        continue
 
 combined = pd.concat(all_texts, ignore_index=True)
-print(f"\nTotal rows loaded from catalog: {len(combined)}")
+print(f"\nTotal rows loaded: {len(combined)}")
 
 # Convert to HuggingFace Dataset and split train/val
 full_dataset = Dataset.from_pandas(combined)
