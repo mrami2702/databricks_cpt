@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPT Model Advisor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a0a;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: #111111;
+            border-bottom: 1px solid #222;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #1dd1a1, #10ac84);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .header-text h1 {
+            font-size: 15px;
+            color: #f3f4f6;
+            font-weight: 600;
+        }
+
+        .header-text p {
+            font-size: 11px;
+            color: #6b7280;
+        }
+
+        .header-badge {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 20px;
+            padding: 4px 12px;
+        }
+
+        .header-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .header-badge span {
+            font-size: 11px;
+            color: #10b981;
+            font-weight: 500;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Chat area */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Welcome message */
+        .welcome {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+        }
+
+        .welcome h2 {
+            font-size: 20px;
+            color: #d1d5db;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .welcome p {
+            font-size: 13px;
+            line-height: 1.6;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .suggestions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .suggestion-btn {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 20px;
+            padding: 8px 16px;
+            color: #d1d5db;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .suggestion-btn:hover {
+            background: #222;
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        /* Messages */
+        .message {
+            display: flex;
+            gap: 12px;
+            max-width: 720px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .message.ai .message-avatar {
+            background: linear-gradient(135deg, #1dd1a1, #10ac84);
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #54a0ff, #2e86de);
+        }
+
+        .message-content {
+            padding: 12px 16px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: #d1d5db;
+        }
+
+        .message.ai .message-content {
+            background: #151515;
+            border: 1px solid #252525;
+            border-top-left-radius: 4px;
+        }
+
+        .message.user .message-content {
+            background: rgba(54, 160, 255, 0.12);
+            border: 1px solid rgba(54, 160, 255, 0.2);
+            border-top-right-radius: 4px;
+        }
+
+        .message-content strong {
+            color: #f3f4f6;
+        }
+
+        .message-content .model-highlight {
+            background: rgba(16, 185, 129, 0.15);
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: #10b981;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .message-content .metric {
+            color: #a78bfa;
+            font-weight: 500;
+        }
+
+        .message-content .section-header {
+            color: #10b981;
+            font-weight: 600;
+            font-size: 13px;
+            margin-top: 12px;
+            display: block;
+        }
+
+        .message-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+
+        .message-content th {
+            text-align: left;
+            color: #9ca3af;
+            font-weight: 600;
+            padding: 6px 12px;
+            border-bottom: 1px solid #333;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .message-content td {
+            padding: 6px 12px;
+            border-bottom: 1px solid #1f1f1f;
+            color: #d1d5db;
+        }
+
+        .message-content tr.winner td {
+            color: #10b981;
+            font-weight: 500;
+        }
+
+        /* Typing indicator */
+        .typing {
+            display: flex;
+            gap: 12px;
+            max-width: 720px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .typing-dots {
+            padding: 16px 20px;
+            background: #151515;
+            border: 1px solid #252525;
+            border-radius: 14px;
+            border-top-left-radius: 4px;
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            background: #6b7280;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes bounce {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+
+        .typing-label {
+            font-size: 11px;
+            color: #6b7280;
+            margin-top: 6px;
+            padding-left: 4px;
+        }
+
+        /* Input area */
+        .input-area {
+            padding: 16px 24px 24px;
+            background: #0a0a0a;
+        }
+
+        .input-container {
+            max-width: 720px;
+            margin: 0 auto;
+            display: flex;
+            gap: 10px;
+            background: #151515;
+            border: 1px solid #333;
+            border-radius: 16px;
+            padding: 6px 6px 6px 18px;
+            transition: border-color 0.2s;
+        }
+
+        .input-container:focus-within {
+            border-color: #10b981;
+        }
+
+        .input-container input {
+            flex: 1;
+            background: none;
+            border: none;
+            outline: none;
+            color: #f3f4f6;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .input-container input::placeholder {
+            color: #4b5563;
+        }
+
+        .send-btn {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, #1dd1a1, #10ac84);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        .suggestions-bottom {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: center;
+            max-width: 720px;
+            margin: 0 auto 10px;
+        }
+
+        .footer-note {
+            text-align: center;
+            font-size: 10px;
+            color: #374151;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-icon">🧠</div>
+        <div class="header-text">
+            <h1>CPT Model Advisor</h1>
+            <p>Domain-adapted AI for ML model selection</p>
+        </div>
+        <div class="header-badge">
+            <div class="dot"></div>
+            <span>Model Active</span>
+        </div>
+    </div>
+
+    <div class="chat-area" id="chatArea">
+        <div class="welcome" id="welcome">
+            <h2>What model should you deploy?</h2>
+            <p>Ask me about model selection, performance comparisons, or deployment recommendations. I've been trained on your domain-specific evaluation criteria.</p>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="suggestions-bottom">
+            <button class="suggestion-btn" onclick="askQuestion(this.textContent)">Which model is best for neutron flux prediction?</button>
+            <button class="suggestion-btn" onclick="askQuestion(this.textContent)">Compare the staging models for mineral classification</button>
+            <button class="suggestion-btn" onclick="askQuestion(this.textContent)">What should I deploy for real-time safety monitoring?</button>
+            <button class="suggestion-btn" onclick="askQuestion(this.textContent)">Is the neural network ready for production?</button>
+        </div>
+        <div class="input-container">
+            <input type="text" id="userInput" placeholder="Ask about model selection..." onkeydown="if(event.key==='Enter')sendMessage()">
+            <button class="send-btn" onclick="sendMessage()">→</button>
+        </div>
+        <div class="footer-note">Powered by CPT-trained Phi-3 · Connected to MLflow Registry</div>
+    </div>
+
+    <script>
+        const responses = {
+            "neutron": {
+                delay: 3200,
+                text: `<strong>Recommendation:</strong> <span class="model-highlight">neutron_flux_predictor_nn v2</span>
+
+<span class="section-header">Models Evaluated (from MLflow Registry)</span>
+
+<table>
+<tr><th>Model</th><th>RMSE</th><th>R²</th><th>Latency</th><th>Stage</th></tr>
+<tr class="winner"><td>neutron_flux_predictor_nn v2</td><td>0.0198</td><td>0.9521</td><td>45.2ms</td><td>Staging</td></tr>
+<tr><td>neutron_flux_predictor_xgboost v3</td><td>0.0234</td><td>0.9342</td><td>12.4ms</td><td>Staging</td></tr>
+<tr><td>neutron_flux_predictor_linear v1</td><td>0.0412</td><td>0.8756</td><td>2.1ms</td><td>Production</td></tr>
+</table>
+
+<span class="section-header">Justification</span>
+The neural network achieves the best accuracy across all metrics — RMSE of <span class="metric">0.0198</span> (15.4% better than XGBoost) and R² of <span class="metric">0.9521</span>, explaining 95.2% of variance in neutron flux distributions.
+
+For safety-critical reactor simulations, prediction accuracy is the primary concern. The 15% improvement in RMSE over XGBoost is significant when modeling neutron flux gradients near fuel assembly boundaries.
+
+<span class="section-header">Acceptance Criteria</span>
+✓ R² > 0.90 threshold: <strong>PASS</strong> (0.9521)
+✓ RMSE < 0.03 threshold: <strong>PASS</strong> (0.0198)
+✓ Inference latency < 100ms: <strong>PASS</strong> (45.2ms)
+
+<span class="section-header">Risks & Recommendations</span>
+• Inference latency (45.2ms) is 3.6x higher than XGBoost — acceptable for batch simulation but monitor if real-time requirements change
+• Recommend A/B testing against the current production linear model for 2 weeks before full cutover
+• Set up drift detection with 2σ threshold on input feature distributions`
+            },
+            "mineral": {
+                delay: 2800,
+                text: `<strong>Recommendation:</strong> <span class="model-highlight">rare_earth_extraction_rf v3</span>
+
+<span class="section-header">Models Evaluated (from MLflow Registry)</span>
+
+<table>
+<tr><th>Model</th><th>Accuracy</th><th>F1</th><th>Latency</th><th>Stage</th></tr>
+<tr class="winner"><td>rare_earth_extraction_rf v3</td><td>94.2%</td><td>0.91</td><td>12ms</td><td>Staging</td></tr>
+<tr><td>rare_earth_extraction_nn v2</td><td>95.1%</td><td>0.93</td><td>340ms</td><td>Staging</td></tr>
+<tr><td>rare_earth_extraction_svm v1</td><td>87.3%</td><td>0.84</td><td>8ms</td><td>Production</td></tr>
+</table>
+
+<span class="section-header">Justification</span>
+The random forest achieves <span class="metric">94.2%</span> classification accuracy for lithium-bearing pegmatite identification with an F1 of <span class="metric">0.91</span> on minority deposit types. Feature importance aligns with USGS critical minerals criteria, correctly weighting geochemical signatures (Li/Cs ratios, Ta concentrations) over lithological proxies.
+
+<span class="section-header">Why not the neural network?</span>
+While the NN scores slightly higher on accuracy (<span class="metric">95.1%</span>), its inference latency of <span class="metric">340ms</span> exceeds the 100ms requirement for real-time field analysis. The random forest delivers comparable accuracy at <span class="metric">12ms</span> latency — a 28x improvement.
+
+<span class="section-header">Next Steps</span>
+• Promote from Staging to Production in MLflow Registry
+• Set up drift monitoring on geochemical input features
+• Schedule quarterly retraining with updated USGS survey data`
+            },
+            "safety": {
+                delay: 3500,
+                text: `<strong>Recommendation:</strong> <span class="model-highlight">safety_monitor_ensemble v4</span>
+
+<span class="section-header">Models Evaluated (from MLflow Registry)</span>
+
+<table>
+<tr><th>Model</th><th>Recall</th><th>F1</th><th>P99 Latency</th><th>Stage</th></tr>
+<tr class="winner"><td>safety_monitor_ensemble v4</td><td>99.7%</td><td>0.94</td><td>18ms</td><td>Staging</td></tr>
+<tr><td>safety_monitor_transformer v2</td><td>99.2%</td><td>0.96</td><td>125ms</td><td>Staging</td></tr>
+<tr><td>safety_monitor_rf v3</td><td>97.8%</td><td>0.91</td><td>5ms</td><td>Production</td></tr>
+</table>
+
+<span class="section-header">Justification</span>
+For real-time safety monitoring, <strong>recall is the critical metric</strong> — a missed anomaly (false negative) has significantly higher consequences than a false alarm. The ensemble model achieves <span class="metric">99.7% recall</span> while maintaining an F1 of <span class="metric">0.94</span>.
+
+The transformer model has marginally better F1 (<span class="metric">0.96</span>) but its P99 latency of <span class="metric">125ms</span> exceeds the 50ms requirement for real-time safety-critical alerting. The ensemble's <span class="metric">18ms</span> P99 latency provides adequate headroom.
+
+<span class="section-header">Acceptance Criteria</span>
+✓ Recall > 99.5%: <strong>PASS</strong> (99.7%)
+✓ F1 > 0.90: <strong>PASS</strong> (0.94)
+✓ P99 latency < 50ms: <strong>PASS</strong> (18ms)
+✓ False positive rate < 2%: <strong>PASS</strong> (1.3%)
+
+<span class="section-header">Critical Deployment Notes</span>
+• Requires shadow mode deployment for 72 hours alongside current production model before cutover
+• Automated rollback must be configured — if recall drops below 99.0% on live data, revert immediately
+• Alert on-call team during transition window`
+            },
+            "neural": {
+                delay: 2500,
+                text: `<strong>Assessment:</strong> <span class="model-highlight">neutron_flux_predictor_nn v2</span> — <strong>Ready with conditions</strong>
+
+<span class="section-header">Production Readiness Checklist</span>
+
+✓ Accuracy metrics meet thresholds (R²: <span class="metric">0.9521</span>, RMSE: <span class="metric">0.0198</span>)
+✓ Cross-validation stability confirmed (σ = 0.008 across 5 folds)
+✓ No significant data drift detected in last 30 days
+⚠ Inference latency at <span class="metric">45.2ms</span> — within limits but close to threshold for batch-heavy workloads
+✗ Edge case testing incomplete — performance on non-standard fuel geometries not validated
+
+<span class="section-header">Recommendation</span>
+The neural network is <strong>conditionally ready</strong> for production deployment. Core performance metrics exceed all acceptance criteria, and the model has demonstrated stability across cross-validation.
+
+However, before full promotion:
+1. Complete edge case validation on non-standard fuel assembly geometries (estimated 3-5 day effort)
+2. Run champion/challenger against current production linear model for minimum 1 week
+3. Document inference memory footprint — the 4-layer architecture (256 hidden units) requires approximately 2.1GB at inference
+
+<span class="section-header">If approved, deployment sequence:</span>
+1. Register as "Production" candidate in MLflow
+2. Deploy to shadow endpoint alongside current model
+3. Compare predictions for 7 days
+4. Promote and archive linear model v1`
+            },
+            "default": {
+                delay: 2000,
+                text: `I can help you evaluate and select the best model from your MLflow Registry. I have access to all registered models, their performance metrics, and deployment history.
+
+<span class="section-header">I can help with:</span>
+• <strong>Model comparisons</strong> — side-by-side metric analysis across candidates
+• <strong>Deployment recommendations</strong> — which model meets your acceptance criteria
+• <strong>Production readiness</strong> — checklist validation before promotion
+• <strong>Risk assessment</strong> — latency, drift sensitivity, and edge case analysis
+
+Try asking something like:
+• "Which model is best for neutron flux prediction?"
+• "Compare the staging models for mineral classification"
+• "Is the neural network ready for production?"`
+            }
+        };
+
+        function getResponse(question) {
+            const q = question.toLowerCase();
+            if (q.includes("neutron") || q.includes("flux")) return responses.neutron;
+            if (q.includes("mineral") || q.includes("rare earth") || q.includes("classification") || q.includes("compare")) return responses.mineral;
+            if (q.includes("safety") || q.includes("monitoring") || q.includes("real-time") || q.includes("realtime")) return responses.safety;
+            if (q.includes("neural") || q.includes("ready") || q.includes("production")) return responses.neural;
+            return responses.default;
+        }
+
+        function addMessage(text, isUser) {
+            const welcome = document.getElementById('welcome');
+            if (welcome) welcome.remove();
+
+            const chatArea = document.getElementById('chatArea');
+            const msg = document.createElement('div');
+            msg.className = `message ${isUser ? 'user' : 'ai'}`;
+            msg.innerHTML = `
+                <div class="message-avatar">${isUser ? '👤' : '🧠'}</div>
+                <div class="message-content">${text}</div>
+            `;
+            chatArea.appendChild(msg);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function showTyping() {
+            const chatArea = document.getElementById('chatArea');
+            const typing = document.createElement('div');
+            typing.className = 'typing';
+            typing.id = 'typing';
+            typing.innerHTML = `
+                <div class="message-avatar" style="background: linear-gradient(135deg, #1dd1a1, #10ac84);">🧠</div>
+                <div>
+                    <div class="typing-dots"><span></span><span></span><span></span></div>
+                    <div class="typing-label">Querying MLflow Registry & analyzing models...</div>
+                </div>
+            `;
+            chatArea.appendChild(typing);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        function removeTyping() {
+            const typing = document.getElementById('typing');
+            if (typing) typing.remove();
+        }
+
+        function askQuestion(text) {
+            document.getElementById('userInput').value = text;
+            sendMessage();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('userInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = '';
+            addMessage(text, true);
+
+            const response = getResponse(text);
+
+            showTyping();
+
+            setTimeout(() => {
+                removeTyping();
+                addMessage(response.text, false);
+            }, response.delay);
+        }
+    </script>
+
+</body>
+</html>
