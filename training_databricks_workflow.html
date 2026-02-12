@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training in Databricks Workflow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            gap: 40px;
+        }
+
+        h1 {
+            font-size: 18px;
+            color: #f3f4f6;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .workflow {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 90px;
+        }
+
+        .icon-box {
+            width: 70px;
+            height: 70px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            transition: transform 0.2s;
+        }
+
+        .icon-box:hover {
+            transform: scale(1.1);
+        }
+
+        .step-label {
+            font-size: 11px;
+            color: #d1d5db;
+            text-align: center;
+            font-weight: 500;
+            margin-top: 8px;
+            height: 14px;
+        }
+
+        .sub-label {
+            font-size: 9px;
+            color: #6b7280;
+            text-align: center;
+            height: 12px;
+            margin-top: 2px;
+        }
+
+        /* Colors */
+        .unity-catalog { background: linear-gradient(135deg, #ff6b6b, #ee5a5a); }
+        .gpu-train { background: linear-gradient(135deg, #5f27cd, #341f97); }
+        .model { background: linear-gradient(135deg, #00d2d3, #01a3a4); }
+        .mlflow { background: linear-gradient(135deg, #feca57, #ff9f43); }
+        .evaluate { background: linear-gradient(135deg, #54a0ff, #2e86de); }
+        .output { background: linear-gradient(135deg, #1dd1a1, #10ac84); }
+
+        /* Arrow */
+        .arrow {
+            color: #6b7280;
+            font-size: 20px;
+            height: 70px;
+            display: flex;
+            align-items: center;
+        }
+
+        /* Phase labels */
+        .phase-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .phase-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .phase-label.training {
+            background: rgba(95, 39, 205, 0.2);
+            color: #a78bfa;
+        }
+
+        .phase-label.evaluation {
+            background: rgba(84, 160, 255, 0.2);
+            color: #60a5fa;
+        }
+
+        .phase-label.inference {
+            background: rgba(29, 209, 161, 0.2);
+            color: #6ee7b7;
+        }
+
+        .phase-group {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .divider {
+            width: 2px;
+            height: 70px;
+            background: #374151;
+            margin: 0 15px;
+            margin-top: 25px;
+        }
+
+        /* Databricks badge */
+        .databricks-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 107, 107, 0.1);
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            border-radius: 20px;
+            padding: 6px 16px;
+            margin-bottom: 10px;
+        }
+
+        .databricks-badge span {
+            font-size: 11px;
+            color: #ff6b6b;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        /* Detail box */
+        .detail-box {
+            background: #111111;
+            border: 1px solid #333333;
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 620px;
+            position: relative;
+        }
+
+        .detail-box::before {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 10px solid #333333;
+        }
+
+        .detail-header {
+            font-size: 13px;
+            font-weight: 600;
+            color: #f3f4f6;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333333;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detail-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #6b7280;
+            font-weight: 600;
+        }
+
+        .detail-value {
+            font-size: 12px;
+            color: #d1d5db;
+            line-height: 1.5;
+        }
+
+        .detail-value code {
+            background: rgba(139, 92, 246, 0.15);
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: #a78bfa;
+            font-size: 11px;
+        }
+
+        .detail-value .green {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .chat-message {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .chat-message:last-child {
+            margin-bottom: 0;
+        }
+
+        .chat-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .user-avatar {
+            background: linear-gradient(135deg, #54a0ff, #2e86de);
+        }
+
+        .ai-avatar {
+            background: linear-gradient(135deg, #1dd1a1, #10ac84);
+        }
+
+        .chat-bubble {
+            font-size: 12px;
+            line-height: 1.6;
+            color: #d1d5db;
+            padding: 10px 14px;
+            border-radius: 12px;
+            max-width: 480px;
+        }
+
+        .user-bubble {
+            background: rgba(84, 160, 255, 0.1);
+            border: 1px solid rgba(84, 160, 255, 0.2);
+        }
+
+        .ai-bubble {
+            background: rgba(29, 209, 161, 0.07);
+            border: 1px solid rgba(29, 209, 161, 0.15);
+        }
+
+        .ai-bubble strong {
+            color: #f3f4f6;
+        }
+
+        .model-name {
+            background: rgba(16, 185, 129, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #10b981;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <h1>Training in Databricks Workflow</h1>
+
+    <div class="workflow">
+        <!-- Training Phase -->
+        <div class="phase-wrapper">
+            <span class="phase-label training">Training</span>
+            <div class="phase-group">
+                <div class="step">
+                    <div class="icon-box unity-catalog">🗄️</div>
+                    <span class="step-label">Unity Catalog</span>
+                    <span class="sub-label">All schema tables</span>
+                </div>
+                <span class="arrow">→</span>
+                <div class="step">
+                    <div class="icon-box gpu-train">🔥</div>
+                    <span class="step-label">GPU Train</span>
+                    <span class="sub-label">QLoRA on V100</span>
+                </div>
+                <span class="arrow">→</span>
+                <div class="step">
+                    <div class="icon-box model">🧠</div>
+                    <span class="step-label">CPT Model</span>
+                    <span class="sub-label">DBFS storage</span>
+                </div>
+                <span class="arrow">→</span>
+                <div class="step">
+                    <div class="icon-box mlflow">📊</div>
+                    <span class="step-label">MLflow</span>
+                    <span class="sub-label">Auto-logged</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Evaluation Phase -->
+        <div class="phase-wrapper">
+            <span class="phase-label evaluation">Evaluation</span>
+            <div class="phase-group">
+                <div class="step">
+                    <div class="icon-box evaluate">📈</div>
+                    <span class="step-label">Evaluate</span>
+                    <span class="sub-label">Custom metrics</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Inference Phase -->
+        <div class="phase-wrapper">
+            <span class="phase-label inference">Inference</span>
+            <div class="phase-group">
+                <div class="step">
+                    <div class="icon-box mlflow">📊</div>
+                    <span class="step-label">MLflow</span>
+                    <span class="sub-label">Model Registry</span>
+                </div>
+                <span class="arrow">→</span>
+                <div class="step">
+                    <div class="icon-box model">🧠</div>
+                    <span class="step-label">CPT Model</span>
+                    <span class="sub-label">Serving endpoint</span>
+                </div>
+                <span class="arrow">→</span>
+                <div class="step">
+                    <div class="icon-box output">💬</div>
+                    <span class="step-label">App</span>
+                    <span class="sub-label">Natural language</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sample App Output -->
+    <div class="detail-box">
+        <div class="chat-message user-msg">
+            <div class="chat-avatar user-avatar">👤</div>
+            <div class="chat-bubble user-bubble">Which model should I deploy for rare earth mineral classification?</div>
+        </div>
+        <div class="chat-message ai-msg">
+            <div class="chat-avatar ai-avatar">🤖</div>
+            <div class="chat-bubble ai-bubble">
+                <strong>Recommendation: <span class="model-name">rare_earth_extraction_rf_v3</span></strong><br><br>
+                This model achieves 94.2% classification accuracy for lithium-bearing pegmatite identification with an F1 score of 0.91 on minority deposit types. The feature importance aligns with USGS critical minerals criteria, correctly weighting geochemical signatures (Li/Cs ratios, Ta concentrations) over lithological proxies.<br><br>
+                <strong>Why not the neural network?</strong> While the NN model scores slightly higher on accuracy (95.1%), its inference latency of 340ms exceeds the 100ms requirement for real-time field analysis. The random forest delivers comparable accuracy at 12ms latency.<br><br>
+                <strong>Next steps:</strong> Promote from Staging to Production and set up drift monitoring on the geochemical input features.
+            </div>
+        </div>
+    </div>
+</body>
+</html>
