@@ -126,29 +126,89 @@ def load_base_model(config: dict):
     return model, tokenizer
 
 
-def load_from_unity_catalog(table_name: str, text_column: str = "text"):
+def find_text_column(spark_df, preferred_column: str = "text"):
     """
-    Load a Unity Catalog table as a HuggingFace Dataset.
+    Find the best text column in a Spark DataFrame.
+
+    Checks for the preferred column first, then common names, then first string column.
+    """
+    columns = [f.name for f in spark_df.schema.fields]
+    string_columns = [
+        f.name for f in spark_df.schema.fields
+        if str(f.dataType) == "StringType"
+    ]
+
+    if preferred_column in columns:
+        return preferred_column
+
+    common_names = ["text", "content", "text_content", "body", "document", "doc_text"]
+    for name in common_names:
+        if name in columns:
+            return name
+
+    if string_columns:
+        return string_columns[0]
+
+    return None
+
+
+def load_catalog_from_unity_catalog(catalog: str, text_column: str = "text"):
+    """
+    Load ALL tables from ALL schemas in a Unity Catalog as a single HuggingFace Dataset.
 
     Args:
-        table_name: Fully qualified table name (catalog.schema.table)
-        text_column: Column containing the text content
+        catalog: Unity Catalog catalog name
+        text_column: Preferred text column name (auto-detects if not found)
 
     Returns:
-        HuggingFace Dataset
+        HuggingFace Dataset with all text combined
     """
     from pyspark.sql import SparkSession
     from datasets import Dataset
+    import pandas as pd
 
     spark = SparkSession.builder.getOrCreate()
-    df = spark.table(table_name)
 
-    # Select text column and convert to pandas, then to HuggingFace Dataset
-    pdf = df.select(text_column).toPandas()
-    pdf = pdf.rename(columns={text_column: "text"})
-    pdf = pdf.dropna(subset=["text"])
+    # List all schemas in the catalog
+    schemas = [s.name for s in spark.catalog.listDatabases(catalog)]
+    print(f"Found {len(schemas)} schemas in catalog '{catalog}': {schemas}")
 
-    return Dataset.from_pandas(pdf)
+    all_texts = []
+
+    for schema in schemas:
+        tables = spark.catalog.listTables(f"{catalog}.{schema}")
+        table_names = [t.name for t in tables]
+        print(f"\n  Schema '{schema}': {len(table_names)} tables")
+
+        for table_name in table_names:
+            full_table = f"{catalog}.{schema}.{table_name}"
+            try:
+                df = spark.table(full_table)
+                col = find_text_column(df, text_column)
+
+                if col is None:
+                    print(f"    Skipping {table_name} — no text column found")
+                    continue
+
+                pdf = df.select(col).toPandas()
+                pdf = pdf.rename(columns={col: "text"})
+                pdf = pdf.dropna(subset=["text"])
+                pdf = pdf[pdf["text"].str.strip().astype(bool)]
+
+                print(f"    {table_name}: {len(pdf)} rows (column: '{col}')")
+                all_texts.append(pdf)
+
+            except Exception as e:
+                print(f"    Skipping {table_name} — error: {e}")
+                continue
+
+    if not all_texts:
+        raise ValueError(f"No text data found in any table in catalog '{catalog}'")
+
+    combined = pd.concat(all_texts, ignore_index=True)
+    print(f"\nTotal rows loaded from catalog: {len(combined)}")
+
+    return Dataset.from_pandas(combined)
 
 
 def prepare_datasets(config: dict, tokenizer):
@@ -165,14 +225,18 @@ def prepare_datasets(config: dict, tokenizer):
     text_column = data_config.get("text_column", "text")
 
     # Load domain data — Unity Catalog or local JSONL
-    train_table = data_config.get("train_table")
-    val_table = data_config.get("val_table")
+    catalog = data_config.get("catalog")
 
-    if train_table and val_table and is_databricks():
-        print(f"Loading training data from Unity Catalog: {train_table}")
-        domain_train = load_from_unity_catalog(train_table, text_column)
-        print(f"Loading validation data from Unity Catalog: {val_table}")
-        domain_val = load_from_unity_catalog(val_table, text_column)
+    if catalog and is_databricks():
+        print(f"Loading all data from Unity Catalog: {catalog}")
+        full_dataset = load_catalog_from_unity_catalog(catalog, text_column)
+
+        # Split into train/val
+        val_ratio = data_config.get("val_ratio", 0.05)
+        split = full_dataset.train_test_split(test_size=val_ratio, seed=42)
+        domain_train = split["train"]
+        domain_val = split["test"]
+        print(f"Split: {len(domain_train)} train, {len(domain_val)} validation")
     else:
         print(f"Loading domain data from {data_config['train_file']}...")
         domain_train = load_dataset("json", data_files=data_config["train_file"], split="train")

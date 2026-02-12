@@ -67,10 +67,10 @@ qlora:
     - "down_proj"
 
 data:
-  # Unity Catalog tables (used on Databricks)
-  # Set these to read directly from Unity Catalog instead of local files
-  train_table: null  # e.g. "my_catalog.my_schema.train_documents"
-  val_table: null    # e.g. "my_catalog.my_schema.val_documents"
+  # Unity Catalog (used on Databricks)
+  # Set catalog name to load ALL tables from ALL schemas in the catalog
+  catalog: null  # e.g. "my_catalog"
+  val_ratio: 0.05   # Fraction of data held out for validation
 
   # Local file paths (fallback when tables are not set)
   train_file: "data/train.jsonl"
