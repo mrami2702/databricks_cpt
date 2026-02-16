@@ -379,7 +379,7 @@ for table_name, stats in table_stats.items():
         cn = clean_name(col_name)
         top_values = value_counts[:5]
         values_text = ", ".join(
-            f"{v['value']} ({v['count']} records)" for v in top_values
+            f"{str(v['value'])} ({v['count']} records)" for v in top_values
         )
 
         qa_pairs.append({
@@ -397,7 +397,7 @@ for table_name, stats in table_stats.items():
             "response": (
                 f"There are at least {len(value_counts)} distinct {cn} values "
                 f"in the {table_name} table. "
-                f"The most frequent is '{value_counts[0]['value']}' with {value_counts[0]['count']} records."
+                f"The most frequent is '{str(value_counts[0]['value'])}' with {value_counts[0]['count']} records."
             ),
             "category": "aggregation",
         })
@@ -428,7 +428,7 @@ for table_name, stats in table_stats.items():
             continue
 
         # Pick top 2-3 categories to compare
-        top_categories = [v["value"] for v in value_counts[:3] if v["value"]]
+        top_categories = [v["value"] for v in value_counts[:3] if v["value"] is not None]
         if len(top_categories) < 2:
             continue
 
@@ -650,8 +650,8 @@ for table_name, stats in table_stats.items():
                 "instruction": f"Is the {readable} data balanced across {cat_cn} categories?",
                 "response": (
                     f"The {table_name} data shows imbalance across {cat_cn}: "
-                    f"the most common value '{top['value']}' has {top['count']} records, "
-                    f"while '{bottom['value']}' has only {bottom['count']}. "
+                    f"the most common value '{str(top['value'])}' has {top['count']} records, "
+                    f"while '{str(bottom['value'])}' has only {bottom['count']}. "
                     f"This imbalance should be considered when building predictive models, "
                     f"as underrepresented categories may have less reliable statistics."
                 ),
@@ -773,7 +773,7 @@ for table_name, stats in table_stats.items():
         cat_vals = stats["categorical"].get(first_cat, [])
         if cat_vals and cat_vals[0]["count"] > 0.8 * row_count:
             checks.append(
-                f"review {clean_name(first_cat)} — value '{cat_vals[0]['value']}' "
+                f"review {clean_name(first_cat)} — value '{str(cat_vals[0]['value'])}' "
                 f"dominates at {100*cat_vals[0]['count']/row_count:.0f}% of records"
             )
 
@@ -819,7 +819,7 @@ for table_name, stats in table_stats.items():
                 f"mean {col_stat['avg']:.6g}"
             )
         elif col_name in stats["categorical"] and stats["categorical"][col_name]:
-            vals = [v["value"] for v in stats["categorical"][col_name][:5]]
+            vals = [str(v["value"]) for v in stats["categorical"][col_name][:5]]
             schema_parts.append(
                 f"{cn} ({col_type}): values include {', '.join(vals)}"
             )
@@ -1136,7 +1136,7 @@ for table_name, stats in table_stats.items():
         cat_vals = stats["categorical"].get(col_name, [])
         if cat_vals:
             cn = clean_name(col_name)
-            top_vals = ", ".join(v["value"] for v in cat_vals[:3])
+            top_vals = ", ".join(str(v["value"]) for v in cat_vals[:3])
             cat_info.append(f"{cn}: {top_vals}")
 
     qa_pairs.append({
