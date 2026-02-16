@@ -74,11 +74,13 @@ for name in table_names:
         col_type = str(field.dataType)
         columns.append((col_name, col_type))
 
-        # Detect numeric types (handles all Decimal precisions, not just 38,18)
+        # Detect types using substring matching to handle all variants
+        # (e.g., DecimalType(10,2), VarcharType(255), CharType(50), etc.)
         col_type_lower = col_type.lower()
+
         if any(t in col_type_lower for t in ["double", "float", "integer", "long", "decimal", "short", "byte"]):
             numeric_cols.append(col_name)
-        elif col_type == "StringType":
+        elif any(t in col_type_lower for t in ["string", "varchar", "char", "text"]):
             # Put into BOTH id_cols and string_cols if it looks like an identifier
             # so it can still be used for categorical analysis
             if any(hint in col_name.lower() for hint in ["id", "key"]):
@@ -88,8 +90,14 @@ for name in table_names:
                 # Also mark as identifier if it has name/code/sample
                 if any(hint in col_name.lower() for hint in ["name", "code", "sample"]):
                     id_cols.append(col_name)
-        elif col_type == "BooleanType":
+        elif "boolean" in col_type_lower:
             string_cols.append(col_name)  # Treat booleans as categorical
+        elif "date" in col_type_lower or "timestamp" in col_type_lower:
+            string_cols.append(col_name)  # Treat dates as categorical for grouping
+        else:
+            # Unknown type — check if it's not numeric and treat as categorical
+            print(f"    WARNING: Unknown type '{col_type}' for column '{col_name}' — treating as categorical")
+            string_cols.append(col_name)
 
     table_info[name] = {
         "full_name": full_name,
