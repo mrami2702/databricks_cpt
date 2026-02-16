@@ -74,13 +74,22 @@ for name in table_names:
         col_type = str(field.dataType)
         columns.append((col_name, col_type))
 
-        if col_type in ("DoubleType", "FloatType", "IntegerType", "LongType", "DecimalType(38,18)"):
+        # Detect numeric types (handles all Decimal precisions, not just 38,18)
+        col_type_lower = col_type.lower()
+        if any(t in col_type_lower for t in ["double", "float", "integer", "long", "decimal", "short", "byte"]):
             numeric_cols.append(col_name)
         elif col_type == "StringType":
-            if any(hint in col_name.lower() for hint in ["id", "name", "code", "key", "sample"]):
+            # Put into BOTH id_cols and string_cols if it looks like an identifier
+            # so it can still be used for categorical analysis
+            if any(hint in col_name.lower() for hint in ["id", "key"]):
                 id_cols.append(col_name)
             else:
                 string_cols.append(col_name)
+                # Also mark as identifier if it has name/code/sample
+                if any(hint in col_name.lower() for hint in ["name", "code", "sample"]):
+                    id_cols.append(col_name)
+        elif col_type == "BooleanType":
+            string_cols.append(col_name)  # Treat booleans as categorical
 
     table_info[name] = {
         "full_name": full_name,
@@ -93,8 +102,23 @@ for name in table_names:
 
     print(f"  {name}: {row_count} rows, {len(columns)} cols "
           f"({len(numeric_cols)} numeric, {len(string_cols)} categorical, {len(id_cols)} identifiers)")
+    if numeric_cols:
+        print(f"    Numeric: {', '.join(numeric_cols[:5])}" + (f" + {len(numeric_cols)-5} more" if len(numeric_cols) > 5 else ""))
+    if string_cols:
+        print(f"    Categorical: {', '.join(string_cols[:5])}" + (f" + {len(string_cols)-5} more" if len(string_cols) > 5 else ""))
+    # Show raw types for debugging
+    type_set = set(ct for _, ct in columns)
+    print(f"    Raw types: {type_set}")
 
 print(f"\nTotal tables: {len(table_info)}")
+total_numeric = sum(len(info["numeric_cols"]) for info in table_info.values())
+total_categorical = sum(len(info["string_cols"]) for info in table_info.values())
+print(f"Total numeric columns across all tables: {total_numeric}")
+print(f"Total categorical columns across all tables: {total_categorical}")
+if total_numeric == 0:
+    print("WARNING: No numeric columns detected! Check raw types above.")
+if total_categorical == 0:
+    print("WARNING: No categorical columns detected! Comparisons and some aggregations will be skipped.")
 
 # COMMAND ----------
 
@@ -198,10 +222,14 @@ def clean_name(col_name):
 def readable_table(table_name):
     return table_name.replace("_", " ").title()
 
+def is_numeric_type(col_type):
+    ct = col_type.lower()
+    return any(t in ct for t in ["double", "float", "integer", "long", "decimal", "short", "byte"])
+
 def format_value(value, col_type):
     if value is None:
         return "not recorded"
-    if col_type in ("DoubleType", "FloatType", "DecimalType(38,18)"):
+    if is_numeric_type(col_type):
         if isinstance(value, float):
             return f"{value:.6g}"
         return str(value)
@@ -244,7 +272,7 @@ for table_name, rows in table_samples.items():
                 continue
             formatted = format_value(value, col_type)
             cn = clean_name(col_name)
-            if col_type in ("DoubleType", "FloatType", "IntegerType", "LongType", "DecimalType(38,18)"):
+            if is_numeric_type(col_type):
                 measurements.append(f"{cn} of {formatted}")
             else:
                 properties.append(f"{cn} is {formatted}")
