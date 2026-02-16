@@ -38,7 +38,7 @@ MAX_NUMERIC_COLS_PER_TABLE = 10
 MAX_COMPARISONS_PER_TABLE = 5
 
 # Hard ceiling on total Q&A pairs
-MAX_TOTAL_PAIRS = 2000
+MAX_TOTAL_PAIRS = 2500
 
 # COMMAND ----------
 
@@ -188,8 +188,24 @@ for name, info in table_info.items():
         except Exception:
             continue
 
+    # Pairwise correlations between numeric columns
+    stats["correlations"] = {}
+    numeric_cols_for_corr = info["numeric_cols"][:MAX_NUMERIC_COLS_PER_TABLE]
+    if len(numeric_cols_for_corr) >= 2:
+        for i in range(len(numeric_cols_for_corr)):
+            for j in range(i + 1, len(numeric_cols_for_corr)):
+                col_a = numeric_cols_for_corr[i]
+                col_b = numeric_cols_for_corr[j]
+                try:
+                    corr = df.stat.corr(col_a, col_b)
+                    if corr is not None:
+                        stats["correlations"][(col_a, col_b)] = corr
+                except Exception:
+                    continue
+
     table_stats[name] = stats
-    print(f"  {name}: {len(stats['numeric'])} numeric stats, {len(stats['categorical'])} categorical stats")
+    print(f"  {name}: {len(stats['numeric'])} numeric stats, {len(stats['categorical'])} categorical stats, "
+          f"{len(stats['correlations'])} correlations")
 
 print("\nStatistics computed for all tables.")
 
@@ -347,19 +363,7 @@ for table_name, stats in table_stats.items():
         if avg_val is None:
             continue
 
-        # Question: What is the average?
-        qa_pairs.append({
-            "instruction": f"What is the average {cn} in the {readable} data?",
-            "response": (
-                f"The average {cn} in the {table_name} table is {avg_val:.6g}, "
-                f"computed across {count} measurements. "
-                f"Values range from {format_value(min_val, 'DoubleType')} "
-                f"to {format_value(max_val, 'DoubleType')}."
-            ),
-            "category": "aggregation",
-        })
-
-        # Question: What is the range?
+        # Question: What is the range? (includes average in answer)
         qa_pairs.append({
             "instruction": f"What is the range of {cn} values in {readable}?",
             "response": (
@@ -520,33 +524,6 @@ qa_pairs.append({
     ),
     "category": "schema",
 })
-
-# Question per table: describe this table
-for name, info in table_info.items():
-    readable = readable_table(name)
-    col_names = [c[0] for c in info["columns"]]
-
-    qa_pairs.append({
-        "instruction": f"Describe the {readable} table.",
-        "response": (
-            f"The {name} table contains {info['row_count']} records with {len(info['columns'])} columns: "
-            f"{', '.join(clean_name(c) for c in col_names)}. "
-            f"It has {len(info['numeric_cols'])} numeric measurement columns "
-            f"and {len(info['string_cols'])} categorical columns."
-        ),
-        "category": "schema",
-    })
-
-    # What columns does this table have?
-    qa_pairs.append({
-        "instruction": f"What columns does the {name} table have?",
-        "response": (
-            f"The {name} table has {len(info['columns'])} columns: "
-            + ", ".join(f"{clean_name(c)} ({t})" for c, t in info["columns"])
-            + "."
-        ),
-        "category": "schema",
-    })
 
 # Shared columns across tables
 all_columns = {}
@@ -794,139 +771,7 @@ print(f"Generated {len(qa_pairs) - count_before} data quality Q&A pairs")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 10: Data Transformation & Schema Documentation
-# MAGIC
-# MAGIC Column definitions, observed ranges, skewness detection,
-# MAGIC and unit consistency checks across tables.
-
-# COMMAND ----------
-
-count_before = len(qa_pairs)
-
-for table_name, stats in table_stats.items():
-    info = table_info[table_name]
-    readable = readable_table(table_name)
-
-    # --- Full schema definition ---
-    schema_parts = []
-    for col_name, col_type in info["columns"]:
-        cn = clean_name(col_name)
-        col_stat = stats["numeric"].get(col_name)
-        if col_stat and col_stat["avg"] is not None:
-            schema_parts.append(
-                f"{cn} ({col_type}): range [{format_value(col_stat['min'], col_type)} "
-                f"to {format_value(col_stat['max'], col_type)}], "
-                f"mean {col_stat['avg']:.6g}"
-            )
-        elif col_name in stats["categorical"] and stats["categorical"][col_name]:
-            vals = [str(v["value"]) for v in stats["categorical"][col_name][:5]]
-            schema_parts.append(
-                f"{cn} ({col_type}): values include {', '.join(vals)}"
-            )
-        else:
-            schema_parts.append(f"{cn} ({col_type})")
-
-    qa_pairs.append({
-        "instruction": f"Create a schema definition for the {readable} table with column meanings and ranges.",
-        "response": (
-            f"Schema definition for {table_name} ({info['row_count']} records):\n"
-            + "\n".join(f"- {p}" for p in schema_parts)
-        ),
-        "category": "schema_documentation",
-    })
-
-    # --- Skewness / distribution shape for numeric columns ---
-    for col_name, col_stats in stats["numeric"].items():
-        cn = clean_name(col_name)
-        if col_stats["avg"] is None or col_stats["min"] is None or col_stats["max"] is None:
-            continue
-        avg = col_stats["avg"]
-        min_val = col_stats["min"]
-        max_val = col_stats["max"]
-        data_range = max_val - min_val
-        if data_range == 0:
-            continue
-
-        # Check if mean is far from midpoint (indicates skew)
-        midpoint = (min_val + max_val) / 2
-        if data_range > 0:
-            skew_ratio = (avg - midpoint) / data_range
-            if abs(skew_ratio) > 0.15:
-                direction = "right (higher values)" if skew_ratio > 0 else "left (lower values)"
-                qa_pairs.append({
-                    "instruction": f"Is the {cn} distribution skewed in {readable}?",
-                    "response": (
-                        f"The {cn} distribution in {table_name} appears skewed toward the {direction}. "
-                        f"The mean ({avg:.6g}) is offset from the midpoint of the range "
-                        f"({midpoint:.6g}). Range: {format_value(min_val, 'DoubleType')} to "
-                        f"{format_value(max_val, 'DoubleType')}. "
-                        f"Consider log or power transformation if using this in a linear model."
-                    ),
-                    "category": "schema_documentation",
-                })
-                break  # One per table
-
-# --- Cross-table unit consistency ---
-# Check if same column name appears in multiple tables with different ranges
-col_ranges = {}
-for table_name, stats in table_stats.items():
-    for col_name, col_stats in stats["numeric"].items():
-        if col_stats["avg"] is None:
-            continue
-        if col_name not in col_ranges:
-            col_ranges[col_name] = []
-        col_ranges[col_name].append({
-            "table": table_name,
-            "min": col_stats["min"],
-            "max": col_stats["max"],
-            "avg": col_stats["avg"],
-        })
-
-for col_name, ranges in col_ranges.items():
-    if len(ranges) < 2:
-        continue
-    cn = clean_name(col_name)
-
-    # Check if ranges are wildly different (possible unit mismatch)
-    avgs = [r["avg"] for r in ranges]
-    if max(avgs) > 0 and min(avgs) > 0:
-        ratio = max(avgs) / min(avgs)
-        if ratio > 100:
-            table_details = "; ".join(
-                f"{r['table']} has range [{format_value(r['min'], 'DoubleType')} to "
-                f"{format_value(r['max'], 'DoubleType')}], mean {r['avg']:.6g}"
-                for r in ranges
-            )
-            qa_pairs.append({
-                "instruction": f"Is {cn} measured consistently across tables?",
-                "response": (
-                    f"Warning: {cn} shows very different ranges across tables, "
-                    f"which may indicate different units or scales. "
-                    f"Details: {table_details}. "
-                    f"Verify that the same units are used before joining or comparing across tables."
-                ),
-                "category": "schema_documentation",
-            })
-        else:
-            table_details = "; ".join(
-                f"{r['table']} mean {r['avg']:.6g}"
-                for r in ranges
-            )
-            qa_pairs.append({
-                "instruction": f"Is {cn} consistent across tables?",
-                "response": (
-                    f"The {cn} values are in a similar range across tables: {table_details}. "
-                    f"This suggests consistent units and measurement methods."
-                ),
-                "category": "schema_documentation",
-            })
-
-print(f"Generated {len(qa_pairs) - count_before} schema documentation Q&A pairs")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## Step 11: Uncertainty & Precision Questions
+# MAGIC ## Step 10: Uncertainty & Precision Questions
 # MAGIC
 # MAGIC Confidence intervals, coefficient of variation, and
 # MAGIC measurement precision — all from computed statistics.
@@ -985,7 +830,7 @@ print(f"Generated {len(qa_pairs) - count_before} uncertainty Q&A pairs")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 12: Metadata Completeness & Reproducibility
+# MAGIC ## Step 11: Metadata Completeness & Reproducibility
 # MAGIC
 # MAGIC Check what metadata exists, what is missing,
 # MAGIC and generate documentation checklists.
@@ -1073,89 +918,662 @@ print(f"Generated {len(qa_pairs) - count_before} reproducibility Q&A pairs")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 13: Data Summary Questions
+# MAGIC ## Step 12: Correlations & Variable Relationships
 # MAGIC
-# MAGIC Concise factual summaries of what the data contains,
-# MAGIC suitable for lab meetings or quick overviews.
+# MAGIC Which variables are correlated? Which are independent?
+# MAGIC All computed from pairwise Pearson correlations.
 
 # COMMAND ----------
 
 count_before = len(qa_pairs)
 
-# --- Overall schema summary ---
-total_rows = sum(info["row_count"] for info in table_info.values())
-total_numeric = sum(len(info["numeric_cols"]) for info in table_info.values())
-total_categorical = sum(len(info["string_cols"]) for info in table_info.values())
-largest_table = max(table_info.items(), key=lambda x: x[1]["row_count"])
-smallest_table = min(table_info.items(), key=lambda x: x[1]["row_count"])
-
-qa_pairs.append({
-    "instruction": f"Give me a quick summary of the {SOURCE_SCHEMA} data for a lab meeting.",
-    "response": (
-        f"The {SOURCE_SCHEMA} schema contains {len(table_info)} tables with {total_rows} total records. "
-        f"There are {total_numeric} numeric measurement columns and {total_categorical} categorical columns across all tables. "
-        f"The largest table is {largest_table[0]} ({largest_table[1]['row_count']} records) "
-        f"and the smallest is {smallest_table[0]} ({smallest_table[1]['row_count']} records)."
-    ),
-    "category": "summary",
-})
-
-qa_pairs.append({
-    "instruction": f"Summarize the {SOURCE_SCHEMA} dataset in one paragraph.",
-    "response": (
-        f"The {SOURCE_CATALOG}.{SOURCE_SCHEMA} dataset comprises {len(table_info)} tables "
-        f"containing {total_rows} records of scientific data. "
-        f"The tables capture {total_numeric} numeric measurements and {total_categorical} categorical properties. "
-        + (
-            f"Tables are linked through {len(shared)} shared columns, "
-            f"enabling cross-table analysis. "
-            if shared else ""
-        )
-        + f"The largest table ({largest_table[0]}) has {largest_table[1]['row_count']} records "
-        f"while the smallest ({smallest_table[0]}) has {smallest_table[1]['row_count']}."
-    ),
-    "category": "summary",
-})
-
-# --- Per-table summaries ---
 for table_name, stats in table_stats.items():
     info = table_info[table_name]
     readable = readable_table(table_name)
+    correlations = stats.get("correlations", {})
 
-    # Build a quick stats line for key numeric columns
-    key_stats = []
-    for col_name in info["numeric_cols"][:5]:
-        col_stats = stats["numeric"].get(col_name)
-        if col_stats and col_stats["avg"] is not None:
-            cn = clean_name(col_name)
-            key_stats.append(f"{cn} (mean: {col_stats['avg']:.6g})")
+    if not correlations:
+        continue
 
-    # Build category breakdown
-    cat_info = []
-    for col_name in info["string_cols"][:2]:
-        cat_vals = stats["categorical"].get(col_name, [])
-        if cat_vals:
-            cn = clean_name(col_name)
-            top_vals = ", ".join(str(v["value"]) for v in cat_vals[:3])
-            cat_info.append(f"{cn}: {top_vals}")
+    # --- Find strong correlations (|r| > 0.7) ---
+    strong_pos = []
+    strong_neg = []
+    weak = []
+    for (col_a, col_b), corr in sorted(correlations.items(), key=lambda x: -abs(x[1])):
+        ca = clean_name(col_a)
+        cb = clean_name(col_b)
+        if abs(corr) > 0.7:
+            if corr > 0:
+                strong_pos.append((ca, cb, corr))
+            else:
+                strong_neg.append((ca, cb, corr))
+        elif abs(corr) < 0.2:
+            weak.append((ca, cb, corr))
 
-    qa_pairs.append({
-        "instruction": f"Summarize the {readable} data.",
-        "response": (
-            f"The {table_name} table contains {info['row_count']} records with "
-            f"{len(info['columns'])} columns. "
-            + (f"Key measurements: {'; '.join(key_stats)}. " if key_stats else "")
-            + (f"Categories: {'; '.join(cat_info)}. " if cat_info else "")
-        ),
-        "category": "summary",
-    })
+    # Q: Which variables are correlated?
+    if strong_pos or strong_neg:
+        parts = []
+        for ca, cb, corr in strong_pos[:5]:
+            parts.append(f"{ca} and {cb} are strongly positively correlated (r={corr:.3f})")
+        for ca, cb, corr in strong_neg[:5]:
+            parts.append(f"{ca} and {cb} are strongly negatively correlated (r={corr:.3f})")
 
-print(f"Generated {len(qa_pairs) - count_before} summary Q&A pairs")
+        qa_pairs.append({
+            "instruction": f"Which variables are correlated in the {readable} data?",
+            "response": (
+                f"In the {table_name} table, the following strong correlations were found: "
+                + "; ".join(parts)
+                + ". Strong correlations (|r| > 0.7) suggest these variables may be measuring "
+                f"related phenomena or one may be derivable from the other."
+            ),
+            "category": "correlation",
+        })
+
+    # Q: Which variables are independent?
+    if weak:
+        weak_text = "; ".join(
+            f"{ca} and {cb} (r={corr:.3f})" for ca, cb, corr in weak[:5]
+        )
+        qa_pairs.append({
+            "instruction": f"Which variables are independent of each other in {readable}?",
+            "response": (
+                f"In the {table_name} table, these variable pairs show weak or no correlation: "
+                f"{weak_text}. "
+                f"These variables appear to measure independent aspects of the data."
+            ),
+            "category": "correlation",
+        })
+
+    # Q: Does X affect Y? (for top correlated pairs)
+    for (col_a, col_b), corr in sorted(correlations.items(), key=lambda x: -abs(x[1]))[:3]:
+        ca = clean_name(col_a)
+        cb = clean_name(col_b)
+        if abs(corr) < 0.3:
+            continue
+
+        strength = "strong" if abs(corr) > 0.7 else "moderate"
+        direction = "positive" if corr > 0 else "negative"
+        meaning = (
+            f"as {ca} increases, {cb} tends to increase"
+            if corr > 0 else
+            f"as {ca} increases, {cb} tends to decrease"
+        )
+
+        qa_pairs.append({
+            "instruction": f"Does {ca} affect {cb} in {readable}?",
+            "response": (
+                f"There is a {strength} {direction} correlation between {ca} and {cb} "
+                f"in the {table_name} table (r={corr:.3f}). This means {meaning}. "
+                f"Note: correlation does not imply causation — this relationship may be "
+                f"driven by a confounding variable."
+            ),
+            "category": "correlation",
+        })
+
+    # Q: Are any measurements redundant?
+    redundant = [(ca, cb, corr) for (ca, cb), corr in correlations.items() if abs(corr) > 0.95]
+    if redundant:
+        redundant_text = "; ".join(
+            f"{clean_name(a)} and {clean_name(b)} (r={c:.3f})" for a, b, c in redundant[:3]
+        )
+        qa_pairs.append({
+            "instruction": f"Are any measurements redundant in {readable}?",
+            "response": (
+                f"The following pairs in {table_name} are very highly correlated (|r| > 0.95), "
+                f"suggesting they may be measuring the same thing: {redundant_text}. "
+                f"Consider whether both are needed or if one can be derived from the other."
+            ),
+            "category": "correlation",
+        })
+
+    # Q: What is the most important variable? (highest average correlation)
+    avg_corr = {}
+    for (col_a, col_b), corr in correlations.items():
+        avg_corr.setdefault(col_a, []).append(abs(corr))
+        avg_corr.setdefault(col_b, []).append(abs(corr))
+
+    if avg_corr:
+        most_connected = max(avg_corr.items(), key=lambda x: sum(x[1]) / len(x[1]))
+        col_name = most_connected[0]
+        avg_r = sum(most_connected[1]) / len(most_connected[1])
+
+        # Find what it correlates with most
+        top_partners = []
+        for (col_a, col_b), corr in sorted(correlations.items(), key=lambda x: -abs(x[1])):
+            if col_a == col_name:
+                top_partners.append((clean_name(col_b), corr))
+            elif col_b == col_name:
+                top_partners.append((clean_name(col_a), corr))
+
+        partner_text = "; ".join(
+            f"{p} (r={c:.3f})" for p, c in top_partners[:3]
+        )
+
+        qa_pairs.append({
+            "instruction": f"What is the most connected variable in {readable}?",
+            "response": (
+                f"In the {table_name} table, {clean_name(col_name)} has the highest average "
+                f"correlation with other variables (mean |r|={avg_r:.3f}). "
+                f"It is most strongly correlated with: {partner_text}. "
+                f"This suggests {clean_name(col_name)} may be a key driver or central measurement."
+            ),
+            "category": "correlation",
+        })
+
+print(f"Generated {len(qa_pairs) - count_before} correlation Q&A pairs")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 14: Apply Limits and Save
+# MAGIC ## Step 13: Cross-Table Relationships
+# MAGIC
+# MAGIC How do tables relate? What can we learn by joining them?
+# MAGIC Uses shared columns to link tables.
+
+# COMMAND ----------
+
+count_before = len(qa_pairs)
+
+# Find shared columns across tables
+all_columns = {}
+for name, info in table_info.items():
+    for col_name, col_type in info["columns"]:
+        if col_name not in all_columns:
+            all_columns[col_name] = []
+        all_columns[col_name].append(name)
+
+shared_columns = {col: tbls for col, tbls in all_columns.items() if len(tbls) > 1}
+
+# For each pair of tables that share a column, compute cross-table stats
+cross_table_pairs_done = 0
+MAX_CROSS_TABLE = 15
+
+for shared_col, tables_with_col in shared_columns.items():
+    if cross_table_pairs_done >= MAX_CROSS_TABLE:
+        break
+
+    for i in range(len(tables_with_col)):
+        for j in range(i + 1, len(tables_with_col)):
+            if cross_table_pairs_done >= MAX_CROSS_TABLE:
+                break
+
+            t1_name = tables_with_col[i]
+            t2_name = tables_with_col[j]
+            t1_info = table_info[t1_name]
+            t2_info = table_info[t2_name]
+            t1_readable = readable_table(t1_name)
+            t2_readable = readable_table(t2_name)
+
+            # How many shared values?
+            try:
+                df1 = spark.table(t1_info["full_name"]).select(shared_col).distinct()
+                df2 = spark.table(t2_info["full_name"]).select(shared_col).distinct()
+                overlap = df1.intersect(df2).count()
+                total_t1 = df1.count()
+                total_t2 = df2.count()
+            except Exception:
+                continue
+
+            if overlap == 0:
+                continue
+
+            shared_cn = clean_name(shared_col)
+
+            # Q: How do these tables relate?
+            qa_pairs.append({
+                "instruction": f"How are {t1_readable} and {t2_readable} related?",
+                "response": (
+                    f"{t1_name} and {t2_name} share the column '{shared_cn}'. "
+                    f"Of {total_t1} distinct values in {t1_name} and {total_t2} in {t2_name}, "
+                    f"{overlap} values appear in both tables "
+                    f"({100*overlap/min(total_t1, total_t2):.0f}% overlap with the smaller set). "
+                    f"These tables can be joined on '{shared_cn}' to combine their measurements."
+                ),
+                "category": "cross_table",
+            })
+
+            # Q: What would I learn by joining them?
+            t1_unique_cols = [c for c in t1_info["numeric_cols"] if c not in [cc for cc, _ in t2_info["columns"]]][:3]
+            t2_unique_cols = [c for c in t2_info["numeric_cols"] if c not in [cc for cc, _ in t1_info["columns"]]][:3]
+
+            if t1_unique_cols or t2_unique_cols:
+                qa_pairs.append({
+                    "instruction": f"What would I learn by joining {t1_readable} and {t2_readable}?",
+                    "response": (
+                        f"Joining {t1_name} and {t2_name} on '{shared_cn}' would combine "
+                        + (f"measurements from {t1_name} ({', '.join(clean_name(c) for c in t1_unique_cols)}) " if t1_unique_cols else "")
+                        + ("with " if t1_unique_cols and t2_unique_cols else "")
+                        + (f"measurements from {t2_name} ({', '.join(clean_name(c) for c in t2_unique_cols)})" if t2_unique_cols else "")
+                        + f". This would give a more complete picture of each {shared_cn}, "
+                        f"allowing analysis of how measurements in one table relate to the other."
+                    ),
+                    "category": "cross_table",
+                })
+
+            cross_table_pairs_done += 1
+
+print(f"Generated {len(qa_pairs) - count_before} cross-table Q&A pairs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 14: Subgroup Analysis
+# MAGIC
+# MAGIC How do different categories behave? Are there subgroups
+# MAGIC that stand out? All computed from grouped statistics.
+
+# COMMAND ----------
+
+count_before = len(qa_pairs)
+
+for table_name, stats in table_stats.items():
+    info = table_info[table_name]
+    readable = readable_table(table_name)
+    df = spark.table(info["full_name"])
+
+    for cat_col, value_counts in stats["categorical"].items():
+        if len(value_counts) < 2:
+            continue
+
+        cat_cn = clean_name(cat_col)
+        top_cats = [str(v["value"]) for v in value_counts[:5] if v["value"] is not None]
+        if len(top_cats) < 2:
+            continue
+
+        # For each numeric column, compute stats per category
+        for num_col in info["numeric_cols"][:3]:
+            num_cn = clean_name(num_col)
+
+            try:
+                grouped = (
+                    df.filter(F.col(cat_col).isin(top_cats))
+                    .groupBy(cat_col)
+                    .agg(
+                        F.avg(num_col).alias("avg"),
+                        F.stddev(num_col).alias("std"),
+                        F.min(num_col).alias("min_val"),
+                        F.max(num_col).alias("max_val"),
+                        F.count(num_col).alias("cnt"),
+                    )
+                    .collect()
+                )
+            except Exception:
+                continue
+
+            if len(grouped) < 2:
+                continue
+
+            # Find the category with highest and lowest average
+            sorted_groups = sorted(grouped, key=lambda r: r["avg"] if r["avg"] is not None else 0)
+            lowest = sorted_groups[0]
+            highest = sorted_groups[-1]
+
+            if lowest["avg"] is None or highest["avg"] is None:
+                continue
+
+            diff = highest["avg"] - lowest["avg"]
+            if highest["avg"] != 0:
+                pct_diff = 100 * abs(diff) / abs(highest["avg"])
+            else:
+                pct_diff = 0
+
+            # Q: Which subgroup has the highest/lowest X?
+            qa_pairs.append({
+                "instruction": f"Which {cat_cn} category has the highest {num_cn} in {readable}?",
+                "response": (
+                    f"In the {table_name} table, '{str(highest[cat_col])}' has the highest average "
+                    f"{num_cn} at {highest['avg']:.6g} ({highest['cnt']} samples), while "
+                    f"'{str(lowest[cat_col])}' has the lowest at {lowest['avg']:.6g} ({lowest['cnt']} samples). "
+                    f"The difference is {diff:.6g} ({pct_diff:.1f}%)."
+                ),
+                "category": "subgroup",
+            })
+
+            # Q: Do subgroups behave differently?
+            if pct_diff > 20:
+                group_details = "; ".join(
+                    f"'{str(r[cat_col])}': mean {r['avg']:.6g}, std {r['std']:.6g if r['std'] else 0:.6g}, n={r['cnt']}"
+                    for r in sorted_groups
+                )
+                qa_pairs.append({
+                    "instruction": f"Do different {cat_cn} groups behave differently for {num_cn} in {readable}?",
+                    "response": (
+                        f"Yes, there is a notable difference in {num_cn} across {cat_cn} groups "
+                        f"in the {table_name} table ({pct_diff:.1f}% spread). "
+                        f"Breakdown: {group_details}. "
+                        f"This difference may indicate that {cat_cn} is an important factor "
+                        f"influencing {num_cn}."
+                    ),
+                    "category": "subgroup",
+                })
+            break  # One numeric col per categorical col to avoid explosion
+
+print(f"Generated {len(qa_pairs) - count_before} subgroup Q&A pairs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 15: Anomaly & Pattern Detection
+# MAGIC
+# MAGIC Find unusual patterns, extreme values, and unexpected
+# MAGIC distributions — all computed from the data.
+
+# COMMAND ----------
+
+count_before = len(qa_pairs)
+
+for table_name, stats in table_stats.items():
+    info = table_info[table_name]
+    readable = readable_table(table_name)
+    df = spark.table(info["full_name"])
+    row_count = info["row_count"]
+
+    # --- Which samples are outliers across MULTIPLE measurements? ---
+    numeric_cols = info["numeric_cols"][:MAX_NUMERIC_COLS_PER_TABLE]
+    if len(numeric_cols) >= 2 and info["id_cols"]:
+        id_col = info["id_cols"][0]
+
+        # Count how many columns each row is an outlier in
+        outlier_conditions = []
+        for col_name in numeric_cols[:5]:
+            try:
+                quantiles = df.stat.approxQuantile(col_name, [0.25, 0.75], 0.01)
+                if len(quantiles) < 2 or quantiles[0] is None or quantiles[1] is None:
+                    continue
+                q1, q3 = quantiles[0], quantiles[1]
+                iqr = q3 - q1
+                if iqr == 0:
+                    continue
+                lower = q1 - 1.5 * iqr
+                upper = q3 + 1.5 * iqr
+                outlier_conditions.append(
+                    F.when((F.col(col_name) < lower) | (F.col(col_name) > upper), 1).otherwise(0)
+                )
+            except Exception:
+                continue
+
+        if len(outlier_conditions) >= 2:
+            outlier_score = sum(outlier_conditions)
+            multi_outliers = (
+                df.withColumn("outlier_count", outlier_score)
+                .filter(F.col("outlier_count") >= 2)
+                .select(id_col, "outlier_count")
+                .orderBy(F.desc("outlier_count"))
+                .limit(5)
+                .collect()
+            )
+
+            if multi_outliers:
+                outlier_text = "; ".join(
+                    f"{str(r[id_col])} (outlier in {r['outlier_count']} measurements)"
+                    for r in multi_outliers
+                )
+                qa_pairs.append({
+                    "instruction": f"Which samples are unusual across multiple measurements in {readable}?",
+                    "response": (
+                        f"The following samples in {table_name} are outliers in more than one measurement "
+                        f"simultaneously: {outlier_text}. "
+                        f"Multi-measurement outliers may indicate genuinely unusual samples, "
+                        f"measurement errors, or samples from a different population."
+                    ),
+                    "category": "anomaly",
+                })
+
+    # --- Unexpected distributions: bimodality check ---
+    for col_name in numeric_cols[:3]:
+        col_stats = stats["numeric"].get(col_name)
+        if not col_stats or col_stats["avg"] is None or col_stats["stddev"] is None:
+            continue
+
+        cn = clean_name(col_name)
+        avg = col_stats["avg"]
+        std = col_stats["stddev"]
+        min_val = col_stats["min"]
+        max_val = col_stats["max"]
+
+        if std == 0 or min_val is None or max_val is None:
+            continue
+
+        # Check if data clusters at extremes (possible bimodality)
+        try:
+            midpoint = (min_val + max_val) / 2
+            lower_half = df.filter(F.col(col_name) < midpoint).count()
+            upper_half = df.filter(F.col(col_name) >= midpoint).count()
+            middle_third = df.filter(
+                (F.col(col_name) >= min_val + (max_val - min_val) * 0.33) &
+                (F.col(col_name) <= min_val + (max_val - min_val) * 0.66)
+            ).count()
+        except Exception:
+            continue
+
+        total_valid = lower_half + upper_half
+        if total_valid == 0:
+            continue
+
+        middle_pct = 100 * middle_third / total_valid
+
+        # If very few values in the middle, might be bimodal
+        if middle_pct < 15 and total_valid > 20:
+            qa_pairs.append({
+                "instruction": f"Is the {cn} distribution unusual in {readable}?",
+                "response": (
+                    f"The {cn} distribution in {table_name} may be bimodal — "
+                    f"only {middle_pct:.0f}% of values fall in the middle third of the range. "
+                    f"There are {lower_half} values in the lower half and {upper_half} in the upper half. "
+                    f"This pattern could indicate two distinct populations, different experimental "
+                    f"conditions, or a phase transition in the measured phenomenon."
+                ),
+                "category": "anomaly",
+            })
+            break  # One per table
+
+    # --- Surprising patterns: which category has unexpected values? ---
+    for cat_col, value_counts in stats["categorical"].items():
+        if len(value_counts) < 2:
+            continue
+
+        cat_cn = clean_name(cat_col)
+        top_cats = [str(v["value"]) for v in value_counts[:3] if v["value"] is not None]
+        if len(top_cats) < 2:
+            continue
+
+        for num_col in info["numeric_cols"][:2]:
+            num_cn = clean_name(num_col)
+            num_stats = stats["numeric"].get(num_col)
+            if not num_stats or num_stats["stddev"] is None or num_stats["stddev"] == 0:
+                continue
+
+            try:
+                grouped = (
+                    df.filter(F.col(cat_col).isin(top_cats))
+                    .groupBy(cat_col)
+                    .agg(F.avg(num_col).alias("avg"), F.stddev(num_col).alias("std"))
+                    .collect()
+                )
+            except Exception:
+                continue
+
+            # Find if any subgroup mean is >2 stddev from overall mean
+            overall_avg = num_stats["avg"]
+            overall_std = num_stats["stddev"]
+
+            for g in grouped:
+                if g["avg"] is None:
+                    continue
+                z = abs(g["avg"] - overall_avg) / overall_std
+                if z > 2:
+                    direction = "unusually high" if g["avg"] > overall_avg else "unusually low"
+                    qa_pairs.append({
+                        "instruction": f"Are there any surprising {num_cn} values by {cat_cn} in {readable}?",
+                        "response": (
+                            f"Yes — the '{str(g[cat_col])}' group in {table_name} has {direction} "
+                            f"{num_cn} (mean {g['avg']:.6g}) compared to the overall mean ({overall_avg:.6g}). "
+                            f"This is {z:.1f} standard deviations from the overall average. "
+                            f"This may warrant further investigation."
+                        ),
+                        "category": "anomaly",
+                    })
+                    break
+            break  # One per table
+
+print(f"Generated {len(qa_pairs) - count_before} anomaly Q&A pairs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 16: Scientific Interpretation
+# MAGIC
+# MAGIC What do the patterns mean? What should a scientist
+# MAGIC focus on? Grounded in computed statistics.
+
+# COMMAND ----------
+
+count_before = len(qa_pairs)
+
+for table_name, stats in table_stats.items():
+    info = table_info[table_name]
+    readable = readable_table(table_name)
+    correlations = stats.get("correlations", {})
+
+    # --- What should I focus on in this dataset? ---
+    highlights = []
+
+    # Highest variance measurement
+    high_cv_cols = []
+    for col_name, col_stats in stats["numeric"].items():
+        if col_stats["avg"] and col_stats["stddev"] and col_stats["avg"] != 0:
+            cv = abs(col_stats["stddev"] / col_stats["avg"])
+            high_cv_cols.append((col_name, cv))
+    high_cv_cols.sort(key=lambda x: -x[1])
+
+    if high_cv_cols:
+        top_cv = high_cv_cols[0]
+        highlights.append(
+            f"{clean_name(top_cv[0])} has the highest variability (CV={top_cv[1]:.2f}), "
+            f"making it the most informative measurement for distinguishing samples"
+        )
+
+    # Strongest correlation
+    if correlations:
+        strongest = max(correlations.items(), key=lambda x: abs(x[1]))
+        highlights.append(
+            f"{clean_name(strongest[0][0])} and {clean_name(strongest[0][1])} are strongly "
+            f"correlated (r={strongest[1]:.3f}), suggesting a relationship worth investigating"
+        )
+
+    # Data size assessment
+    row_count = info["row_count"]
+    num_cats = len(stats["categorical"])
+    if row_count < 30:
+        highlights.append(f"with only {row_count} records, statistical conclusions should be treated with caution")
+    elif row_count > 1000:
+        highlights.append(f"with {row_count} records, there is sufficient data for robust statistical analysis")
+
+    if highlights:
+        qa_pairs.append({
+            "instruction": f"What should I focus on when analyzing the {readable} data?",
+            "response": (
+                f"Key observations for the {table_name} table: "
+                + ". ".join(highlights) + "."
+            ),
+            "category": "interpretation",
+        })
+
+    # --- What story does this data tell? ---
+    story_parts = []
+    story_parts.append(
+        f"The {table_name} table contains {info['row_count']} records with "
+        f"{len(info['numeric_cols'])} measurements"
+    )
+
+    if high_cv_cols:
+        stable = [c for c, cv in high_cv_cols if cv < 0.1]
+        variable = [c for c, cv in high_cv_cols if cv > 0.3]
+        if stable:
+            story_parts.append(
+                f"Measurements like {', '.join(clean_name(c) for c in stable[:3])} are very consistent "
+                f"across samples (low variability)"
+            )
+        if variable:
+            story_parts.append(
+                f"Measurements like {', '.join(clean_name(c) for c in variable[:3])} show wide variation, "
+                f"suggesting they are sensitive to experimental conditions or sample differences"
+            )
+
+    strong_corrs = [(a, b, c) for (a, b), c in correlations.items() if abs(c) > 0.7]
+    if strong_corrs:
+        story_parts.append(
+            f"There are {len(strong_corrs)} strongly correlated variable pairs, "
+            f"indicating underlying physical or chemical relationships"
+        )
+
+    if len(story_parts) > 1:
+        qa_pairs.append({
+            "instruction": f"What story does the {readable} data tell?",
+            "response": ". ".join(story_parts) + ".",
+            "category": "interpretation",
+        })
+
+    # --- What are the key relationships? ---
+    if correlations:
+        # Top 5 strongest relationships
+        top_corrs = sorted(correlations.items(), key=lambda x: -abs(x[1]))[:5]
+        rel_parts = []
+        for (col_a, col_b), corr in top_corrs:
+            direction = "positively" if corr > 0 else "negatively"
+            rel_parts.append(
+                f"{clean_name(col_a)} and {clean_name(col_b)} are {direction} correlated (r={corr:.3f})"
+            )
+
+        qa_pairs.append({
+            "instruction": f"What are the key relationships between variables in {readable}?",
+            "response": (
+                f"The strongest relationships in the {table_name} table are: "
+                + "; ".join(rel_parts)
+                + ". These correlations suggest which variables are linked and may "
+                f"help identify driving factors in the experimental results."
+            ),
+            "category": "interpretation",
+        })
+
+    # --- Is the data sufficient for analysis? ---
+    num_cols = len(info["numeric_cols"])
+    row_count = info["row_count"]
+    ratio = row_count / max(num_cols, 1)
+
+    sufficiency_note = ""
+    if ratio < 5:
+        sufficiency_note = (
+            f"Warning: with only {ratio:.0f} samples per variable, the dataset may be underpowered "
+            f"for multivariate analysis. Consider collecting more data or reducing the number of variables."
+        )
+    elif ratio < 20:
+        sufficiency_note = (
+            f"The sample-to-variable ratio is {ratio:.0f}:1, which is adequate for basic analysis "
+            f"but may be insufficient for complex modeling. Simple correlations and t-tests are reliable, "
+            f"but multivariate models should be validated carefully."
+        )
+    else:
+        sufficiency_note = (
+            f"With {ratio:.0f} samples per variable, the dataset is well-powered for statistical analysis "
+            f"including multivariate methods."
+        )
+
+    qa_pairs.append({
+        "instruction": f"Is there enough data in {readable} to draw reliable conclusions?",
+        "response": (
+            f"The {table_name} table has {row_count} records and {num_cols} numeric measurements. "
+            + sufficiency_note
+        ),
+        "category": "interpretation",
+    })
+
+print(f"Generated {len(qa_pairs) - count_before} interpretation Q&A pairs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 17: Apply Limits and Save
 
 # COMMAND ----------
 
@@ -1165,9 +1583,11 @@ import random
 if len(qa_pairs) > MAX_TOTAL_PAIRS:
     print(f"Total pairs ({len(qa_pairs)}) exceeds limit ({MAX_TOTAL_PAIRS}), sampling...")
 
-    # Keep all schema and reasoning (they are few), sample from others
-    schema_reasoning = [p for p in qa_pairs if p["category"] in ("schema", "reasoning")]
-    other = [p for p in qa_pairs if p["category"] not in ("schema", "reasoning")]
+    # Keep high-value categories, sample from repetitive ones
+    priority_categories = {"schema", "reasoning", "correlation", "cross_table",
+                          "anomaly", "interpretation", "subgroup"}
+    schema_reasoning = [p for p in qa_pairs if p["category"] in priority_categories]
+    other = [p for p in qa_pairs if p["category"] not in priority_categories]
 
     remaining = MAX_TOTAL_PAIRS - len(schema_reasoning)
     random.seed(42)
@@ -1194,7 +1614,7 @@ print(f"\nSaved to {dest_full}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 15: Preview Generated Q&A Pairs
+# MAGIC ## Step 18: Preview Generated Q&A Pairs
 # MAGIC
 # MAGIC Review samples from each category to verify quality.
 
@@ -1237,7 +1657,7 @@ for cat_row in category_counts:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 16: Spot Check — Search for Specific Questions
+# MAGIC ## Step 19: Spot Check — Search for Specific Questions
 
 # COMMAND ----------
 
