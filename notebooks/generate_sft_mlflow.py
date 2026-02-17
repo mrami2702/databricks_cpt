@@ -29,6 +29,23 @@ MAX_MODELS = 50
 # Max versions per model to analyze
 MAX_VERSIONS_PER_MODEL = 5
 
+# --- Model Filters ---
+# Exact model names to exclude (e.g., your CPT/SFT models)
+EXCLUDE_MODEL_NAMES = [
+    "cpt_model_mistral",
+    "sft_model_mistral",
+    # Add any other model names you want to skip:
+]
+
+# Substring patterns to exclude (catches Databricks foundation model suite)
+# Any model whose name contains one of these (case-insensitive) is skipped
+EXCLUDE_PATTERNS = [
+    "llama", "gpt", "claude", "gemma", "mixtral", "dbrx", "dolly",
+    "mpt", "falcon", "phi", "qwen", "codellama", "starcoder",
+    "databricks-meta", "databricks-llama", "databricks-mixtral",
+    "foundation_model", "system.", "serving_endpoint",
+]
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -42,8 +59,26 @@ from mlflow.tracking import MlflowClient
 client = MlflowClient()
 
 # Pull all registered models
-registered_models = client.search_registered_models()
-print(f"Found {len(registered_models)} registered models in MLflow")
+all_registered_models = client.search_registered_models()
+print(f"Found {len(all_registered_models)} total registered models in MLflow")
+
+# Filter out excluded models
+def should_include(model_name):
+    """Return False if model should be excluded."""
+    # Check exact name match
+    if model_name in EXCLUDE_MODEL_NAMES:
+        return False
+    # Check substring patterns (case-insensitive)
+    name_lower = model_name.lower()
+    for pattern in EXCLUDE_PATTERNS:
+        if pattern.lower() in name_lower:
+            return False
+    return True
+
+registered_models = [rm for rm in all_registered_models if should_include(rm.name)]
+excluded_count = len(all_registered_models) - len(registered_models)
+print(f"Excluded {excluded_count} models (CPT/SFT models + foundation model suite)")
+print(f"Analyzing {len(registered_models)} user-created models")
 
 # Gather full model info
 models = []
