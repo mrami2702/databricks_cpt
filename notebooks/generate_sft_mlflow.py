@@ -550,65 +550,6 @@ if production_models:
                 "category": "deployment",
             })
 
-# --- What is in staging? ---
-staging_models = stages.get("Staging", [])
-if staging_models:
-    staging_list = "; ".join(model_label(m) for m in staging_models)
-    qa_pairs.append({
-        "instruction": "What models are in staging?",
-        "response": f"The following models are in the Staging stage: {staging_list}.",
-        "category": "deployment",
-    })
-
-# --- Should we promote staging to production? ---
-if production_models and staging_models:
-    for staging_m in staging_models:
-        for prod_m in production_models:
-            shared_metrics = set(staging_m["metrics"].keys()) & set(prod_m["metrics"].keys())
-            if not shared_metrics:
-                continue
-
-            improvements = []
-            regressions = []
-            for metric in sorted(shared_metrics):
-                sv = staging_m["metrics"][metric]
-                pv = prod_m["metrics"][metric]
-                if sv is None or pv is None:
-                    continue
-
-                metric_lower = metric.lower()
-                if any(k in metric_lower for k in lower_is_better):
-                    if sv < pv:
-                        pct = 100 * (pv - sv) / abs(pv) if pv != 0 else 0
-                        improvements.append(f"{metric} improved by {pct:.1f}% ({fmt_metric(pv)} -> {fmt_metric(sv)})")
-                    elif sv > pv:
-                        pct = 100 * (sv - pv) / abs(pv) if pv != 0 else 0
-                        regressions.append(f"{metric} regressed by {pct:.1f}% ({fmt_metric(pv)} -> {fmt_metric(sv)})")
-                else:
-                    if sv > pv:
-                        pct = 100 * (sv - pv) / abs(pv) if pv != 0 else 0
-                        improvements.append(f"{metric} improved by {pct:.1f}% ({fmt_metric(pv)} -> {fmt_metric(sv)})")
-                    elif sv < pv:
-                        pct = 100 * (pv - sv) / abs(pv) if pv != 0 else 0
-                        regressions.append(f"{metric} regressed by {pct:.1f}% ({fmt_metric(pv)} -> {fmt_metric(sv)})")
-
-            if improvements or regressions:
-                qa_pairs.append({
-                    "instruction": f"Should I promote {staging_m['name']} from staging to production over {prod_m['name']}?",
-                    "response": (
-                        f"Comparing {model_label(staging_m)} (Staging) vs {model_label(prod_m)} (Production): "
-                        + (f"Improvements: {'; '.join(improvements)}. " if improvements else "No improvements. ")
-                        + (f"Regressions: {'; '.join(regressions)}. " if regressions else "No regressions. ")
-                        + (
-                            f"With {len(improvements)} improvements and {len(regressions)} regressions, "
-                            + ("promotion is recommended." if len(improvements) > len(regressions) else
-                               "promotion should be evaluated carefully." if len(improvements) == len(regressions) else
-                               "the current production model may still be preferable.")
-                        )
-                    ),
-                    "category": "deployment",
-                })
-
 # --- How many models do we have? ---
 qa_pairs.append({
     "instruction": "How many models are registered in MLflow?",
@@ -709,17 +650,6 @@ for model_name, versions in models_by_name.items():
 for m in production_models:
     risks = []
 
-    # Check if newer versions exist in staging
-    staging_same = [
-        s for s in staging_models
-        if s["name"] == m["name"] and int(s["version"]) > int(m["version"])
-    ]
-    if staging_same:
-        risks.append(
-            f"a newer version (v{staging_same[0]['version']}) exists in Staging "
-            f"that may outperform the current production version"
-        )
-
     # Check if it has the worst metrics
     for metric_name, info in best_per_metric.items():
         if model_label(info["model"]) != model_label(m):
@@ -817,7 +747,227 @@ print(f"Generated {len(qa_pairs) - count_before} registry overview Q&A pairs")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 10: Save to Unity Catalog
+# MAGIC ## Step 10: Scientific Framing Questions
+# MAGIC
+# MAGIC How should a scientist think about these models?
+# MAGIC Reliability, confidence, reproducibility, and fitness for purpose.
+
+# COMMAND ----------
+
+count_before = len(qa_pairs)
+
+# --- Model reliability for scientific decisions ---
+for m in models:
+    label = model_label(m)
+    if not m["metrics"]:
+        continue
+
+    # Identify error/accuracy metrics for this model
+    err_metrics = {k: v for k, v in m["metrics"].items()
+                   if v is not None and any(t in k.lower() for t in lower_is_better)
+                   and "latency" not in k.lower() and "time" not in k.lower()}
+    acc_metrics = {k: v for k, v in m["metrics"].items()
+                   if v is not None and any(t in k.lower() for t in higher_is_better)}
+
+    if err_metrics:
+        err_text = "; ".join(f"{k}: {fmt_metric(v)}" for k, v in sorted(err_metrics.items()))
+        qa_pairs.append({
+            "instruction": f"How reliable is {m['name']} for making scientific decisions?",
+            "response": (
+                f"{label} has the following error metrics: {err_text}. "
+                f"When using this model for scientific decisions, these error values represent "
+                f"the expected uncertainty in predictions. Results within this error margin "
+                f"should not be treated as meaningfully different."
+            ),
+            "category": "scientific_reliability",
+        })
+
+    if acc_metrics:
+        acc_text = "; ".join(f"{k}: {fmt_metric(v)}" for k, v in sorted(acc_metrics.items()))
+        qa_pairs.append({
+            "instruction": f"How confident should I be in {m['name']}'s predictions?",
+            "response": (
+                f"{label} achieves {acc_text}. "
+                f"This means the model correctly captures the underlying patterns in the data "
+                f"at this level of accuracy. For high-stakes scientific conclusions, "
+                f"consider cross-validating with independent datasets or experimental replication."
+            ),
+            "category": "scientific_reliability",
+        })
+
+# --- Which model handles measurement variability best? ---
+for metric_name, info in best_per_metric.items():
+    metric_lower = metric_name.lower()
+    if any(t in metric_lower for t in ["rmse", "mse", "mae", "std", "error"]):
+        if len(info["all_values"]) < 2:
+            continue
+
+        ranking = sorted(info["all_values"], key=lambda x: x[2])
+        best_name, best_ver, best_val = ranking[0]
+        worst_name, worst_ver, worst_val = ranking[-1]
+
+        qa_pairs.append({
+            "instruction": f"Which model best handles variability in experimental measurements based on {metric_name}?",
+            "response": (
+                f"{best_name} (v{best_ver}) has the lowest {metric_name} at {fmt_metric(best_val)}, "
+                f"meaning it produces predictions closest to the actual measured values. "
+                f"In contrast, {worst_name} (v{worst_ver}) has {metric_name} of {fmt_metric(worst_val)}. "
+                f"For experiments with high measurement noise, the lower-error model will give "
+                f"more trustworthy predictions."
+            ),
+            "category": "scientific_reliability",
+        })
+
+# --- Reproducibility of model results ---
+for m in models:
+    label = model_label(m)
+    if not m["params"]:
+        continue
+
+    param_text = "; ".join(f"{k}: {v}" for k, v in sorted(m["params"].items())[:10])
+    has_seed = any("seed" in k.lower() or "random" in k.lower() for k in m["params"])
+
+    qa_pairs.append({
+        "instruction": f"Can I reproduce the results of {m['name']}?",
+        "response": (
+            f"To reproduce {label}, the following training parameters are logged: {param_text}. "
+            + ("A random seed is recorded, which is essential for exact reproducibility. " if has_seed
+               else "No random seed is recorded — results may vary between training runs. ")
+            + f"For full reproducibility, ensure the same training data, software versions, "
+            f"and hardware configuration are used."
+        ),
+        "category": "scientific_reproducibility",
+    })
+
+# --- Fitness for purpose: which model for which task? ---
+if len(models) >= 2:
+    # Group models by their available metric types
+    models_with_error = [m for m in models if any(
+        any(t in k.lower() for t in lower_is_better) and "latency" not in k.lower()
+        for k in m["metrics"]
+    )]
+    models_with_accuracy = [m for m in models if any(
+        any(t in k.lower() for t in higher_is_better) for k in m["metrics"]
+    )]
+
+    if models_with_error:
+        qa_pairs.append({
+            "instruction": "Which model should I use for predicting continuous experimental measurements?",
+            "response": (
+                f"For predicting continuous values (e.g., concentrations, yields, physical properties), "
+                f"choose the model with the lowest error metrics. "
+                + "; ".join(
+                    f"{model_label(m)}: " + ", ".join(
+                        f"{k}={fmt_metric(v)}" for k, v in sorted(m["metrics"].items())
+                        if v is not None and any(t in k.lower() for t in lower_is_better)
+                        and "latency" not in k.lower()
+                    )
+                    for m in models_with_error[:5]
+                )
+                + ". Lower error means the model's predictions will be closer to actual experimental values."
+            ),
+            "category": "scientific_fitness",
+        })
+
+    if models_with_accuracy:
+        qa_pairs.append({
+            "instruction": "Which model should I use for classifying experimental outcomes?",
+            "response": (
+                f"For classification tasks (e.g., pass/fail, sample type, anomaly detection), "
+                f"choose the model with the highest accuracy-type metrics. "
+                + "; ".join(
+                    f"{model_label(m)}: " + ", ".join(
+                        f"{k}={fmt_metric(v)}" for k, v in sorted(m["metrics"].items())
+                        if v is not None and any(t in k.lower() for t in higher_is_better)
+                    )
+                    for m in models_with_accuracy[:5]
+                )
+                + ". Higher accuracy means fewer misclassifications in your experimental analysis."
+            ),
+            "category": "scientific_fitness",
+        })
+
+# --- What are the limitations of these models? ---
+for m in models:
+    label = model_label(m)
+    if not m["metrics"]:
+        continue
+
+    limitations = []
+
+    # Check for low accuracy
+    for k, v in m["metrics"].items():
+        if v is None:
+            continue
+        k_lower = k.lower()
+        if any(t in k_lower for t in ["accuracy", "r2", "r2_score"]) and v < 0.8:
+            limitations.append(
+                f"{k} is {fmt_metric(v)}, meaning the model explains less than "
+                f"{v*100:.0f}% of the variance in the data"
+            )
+        elif any(t in k_lower for t in ["f1", "precision", "recall"]) and v < 0.7:
+            limitations.append(
+                f"{k} is {fmt_metric(v)}, indicating the model may miss or misclassify "
+                f"a significant portion of samples"
+            )
+
+    # Check for few parameters logged (may be hard to reproduce)
+    if len(m["params"]) < 3:
+        limitations.append(
+            f"only {len(m['params'])} training parameters are logged, "
+            f"which may make it difficult to reproduce or understand this model"
+        )
+
+    if limitations:
+        qa_pairs.append({
+            "instruction": f"What are the scientific limitations of {m['name']}?",
+            "response": (
+                f"Limitations of {label}: {'; '.join(limitations)}. "
+                f"These limitations should be considered when interpreting model predictions "
+                f"for scientific decision-making."
+            ),
+            "category": "scientific_reliability",
+        })
+
+# --- Cross-model scientific summary ---
+if len(models) >= 2 and best_per_metric:
+    qa_pairs.append({
+        "instruction": "How should I choose between models for my experiment?",
+        "response": (
+            f"Model selection depends on your experimental goals. "
+            f"We have {len(models)} model versions tracking {len(all_metric_names)} metrics. "
+            f"For the most accurate predictions, choose the model that performs best on "
+            f"the metric most relevant to your experiment. "
+            + "; ".join(
+                f"Best {metric}: {model_label(info['model'])} ({fmt_metric(info['value'])})"
+                for metric, info in sorted(best_per_metric.items())[:5]
+            )
+            + ". Always validate model predictions against held-out experimental data "
+            f"before relying on them for scientific conclusions."
+        ),
+        "category": "scientific_fitness",
+    })
+
+    qa_pairs.append({
+        "instruction": "Can I trust these models for scientific analysis?",
+        "response": (
+            f"The {len(models)} models in our registry have been evaluated on "
+            f"{len(all_metric_names)} metrics. "
+            f"Models should be trusted within the bounds of their measured performance — "
+            f"extrapolating beyond the training data distribution is risky. "
+            f"Best practices: validate on independent experimental data, "
+            f"compare predictions to known physical/chemical constraints, "
+            f"and report model uncertainty alongside predictions."
+        ),
+        "category": "scientific_reliability",
+    })
+
+print(f"Generated {len(qa_pairs) - count_before} scientific framing Q&A pairs")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Step 11: Save to Unity Catalog
 
 # COMMAND ----------
 
@@ -842,7 +992,7 @@ print(f"\nSaved to {dest_full}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 11: Preview
+# MAGIC ## Step 12: Preview
 
 # COMMAND ----------
 
