@@ -74,8 +74,8 @@ for rm in registered_models[:MAX_MODELS]:
                 version_info["metrics"] = dict(run.data.metrics)
                 version_info["params"] = dict(run.data.params)
                 version_info["tags"].update({
-                    k: v for k, v in run.data.tags.items()
-                    if not k.startswith("mlflow.")
+                    tk: tv for tk, tv in run.data.tags.items()
+                    if not tk.startswith("mlflow.")
                 })
             except Exception as e:
                 print(f"  Could not fetch run for {model_name} v{v.version}: {e}")
@@ -168,6 +168,8 @@ for stage, stage_models in stages.items():
 # COMMAND ----------
 
 def fmt_metric(value):
+    if value is None:
+        return "N/A"
     if isinstance(value, float):
         if abs(value) < 0.01 or abs(value) > 10000:
             return f"{value:.6g}"
@@ -182,8 +184,9 @@ def model_summary(m):
     if m["description"]:
         parts.append(f"Description: {m['description']}")
     if m["metrics"]:
-        metric_strs = [f"{k}: {fmt_metric(v)}" for k, v in sorted(m["metrics"].items())]
-        parts.append(f"Metrics: {'; '.join(metric_strs)}")
+        metric_strs = [f"{k}: {fmt_metric(v)}" for k, v in sorted(m["metrics"].items()) if v is not None]
+        if metric_strs:
+            parts.append(f"Metrics: {'; '.join(metric_strs)}")
     if m["params"]:
         param_strs = [f"{k}: {v}" for k, v in sorted(m["params"].items())[:10]]
         parts.append(f"Parameters: {'; '.join(param_strs)}")
@@ -212,6 +215,7 @@ for m in models:
     if m["metrics"]:
         metric_text = "; ".join(
             f"{k}: {fmt_metric(v)}" for k, v in sorted(m["metrics"].items())
+            if v is not None
         )
         qa_pairs.append({
             "instruction": f"What are the performance metrics for {label}?",
@@ -536,6 +540,7 @@ if production_models:
         if m["metrics"]:
             metric_text = "; ".join(
                 f"{k}: {fmt_metric(v)}" for k, v in sorted(m["metrics"].items())
+                if v is not None
             )
             qa_pairs.append({
                 "instruction": f"How is {m['name']} performing in production?",
@@ -683,12 +688,13 @@ for model_name, versions in models_by_name.items():
 
     sorted_versions = sorted(versions, key=lambda x: int(x["version"]))
     progression_parts = []
-    for v in sorted_versions:
+    for ver in sorted_versions:
         metric_text = ", ".join(
             f"{k}: {fmt_metric(val)}"
-            for k, val in sorted(v["metrics"].items())[:5]
-        ) if v["metrics"] else "no metrics"
-        progression_parts.append(f"v{v['version']} ({v['stage']}): {metric_text}")
+            for k, val in sorted(ver["metrics"].items())[:5]
+            if val is not None
+        ) if ver["metrics"] else "no metrics"
+        progression_parts.append(f"v{ver['version']} ({ver['stage']}): {metric_text}")
 
     qa_pairs.append({
         "instruction": f"How has {model_name} improved across versions?",

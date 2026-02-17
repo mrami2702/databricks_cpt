@@ -1231,10 +1231,15 @@ for table_name, stats in table_stats.items():
 
             # Q: Do subgroups behave differently?
             if pct_diff > 20:
-                group_details = "; ".join(
-                    f"'{str(r[cat_col])}': mean {r['avg']:.6g}, std {r['std']:.6g if r['std'] else 0:.6g}, n={r['cnt']}"
-                    for r in sorted_groups
-                )
+                group_detail_parts = []
+                for r in sorted_groups:
+                    r_avg = r['avg'] if r['avg'] is not None else 0
+                    r_std = r['std'] if r['std'] is not None else 0
+                    r_cnt = r['cnt'] if r['cnt'] is not None else 0
+                    group_detail_parts.append(
+                        f"'{str(r[cat_col])}': mean {r_avg:.6g}, std {r_std:.6g}, n={r_cnt}"
+                    )
+                group_details = "; ".join(group_detail_parts)
                 qa_pairs.append({
                     "instruction": f"Do different {cat_cn} groups behave differently for {num_cn} in {readable}?",
                     "response": (
