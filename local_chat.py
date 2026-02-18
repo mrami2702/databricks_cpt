@@ -154,6 +154,17 @@ tokenizer = AutoTokenizer.from_pretrained("{BASE_MODEL_PATH}")
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 
+def build_prompt(conversation):
+    prompt = ""
+    for msg in conversation:
+        if msg["role"] == "user":
+            prompt += f"Q: {{msg['content']}}\\n"
+        elif msg["role"] == "assistant":
+            prompt += f"A: {{msg['content']}}\\n\\n"
+    # Add the A: prefix so the model knows to start answering
+    prompt += "A:"
+    return prompt
+
 conversation = []
 "Model loaded successfully"
 """, timeout=600)
@@ -187,9 +198,8 @@ conversation = []
         response = run_on_cluster(ctx_id, f"""
 conversation.append({{"role": "user", "content": {safe_input}}})
 
-inputs = tokenizer.apply_chat_template(
-    conversation, return_tensors="pt", add_generation_prompt=True
-).to(model.device)
+prompt = build_prompt(conversation)
+inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
 
 outputs = model.generate(
     inputs,
