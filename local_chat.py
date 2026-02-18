@@ -198,17 +198,21 @@ conversation = []
 conversation.append({{"role": "user", "content": {safe_input}}})
 
 prompt = build_prompt(conversation)
-inputs = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+tokenized = tokenizer(prompt, return_tensors="pt")
+input_ids = tokenized.input_ids.to(model.device)
+attention_mask = tokenized.attention_mask.to(model.device)
 
 outputs = model.generate(
-    inputs,
+    input_ids,
+    attention_mask=attention_mask,
+    pad_token_id=tokenizer.eos_token_id,
     max_new_tokens=512,
     do_sample=True,
     temperature=0.7,
     top_p=0.9,
 )
 
-resp = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+resp = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True)
 conversation.append({{"role": "assistant", "content": resp}})
 resp
 """)
