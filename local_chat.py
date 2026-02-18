@@ -110,7 +110,19 @@ def main():
         sys.exit(1)
     print("Connected!\n")
 
-    # --- Step 2: Load model on the cluster (one-time) ---
+    # --- Step 2: Install dependencies on the cluster ---
+    print("Installing dependencies on cluster...")
+    install_result = run_on_cluster(ctx_id, """
+import subprocess
+subprocess.check_call(["pip", "install", "-q", "peft", "bitsandbytes", "accelerate"])
+"Dependencies installed"
+""")
+    if "[ERROR]" in str(install_result):
+        print(f"Failed to install dependencies: {install_result}")
+        sys.exit(1)
+    print("Dependencies installed!\n")
+
+    # --- Step 3: Load model on the cluster (one-time) ---
     print("Loading model on cluster (this takes 1-2 minutes)...")
     load_result = run_on_cluster(ctx_id, f"""
 from peft import PeftModel
