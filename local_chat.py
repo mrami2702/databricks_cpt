@@ -125,7 +125,7 @@ subprocess.check_call(["pip", "install", "-q", "peft", "bitsandbytes", "accelera
     # --- Step 3: Load model on the cluster (one-time) ---
     print("Loading model on cluster (this takes 1-2 minutes)...")
     load_result = run_on_cluster(ctx_id, f"""
-from peft import PeftModel
+from peft import PeftModel, PeftConfig, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import torch
 
@@ -141,7 +141,9 @@ base = AutoModelForCausalLM.from_pretrained(
     "{BASE_MODEL_PATH}",
     quantization_config=quantization_config,
     device_map="auto",
+    trust_remote_code=True,
 )
+base = prepare_model_for_kbit_training(base)
 
 # Step 2: Load CPT adapter and merge into base
 model = PeftModel.from_pretrained(base, "{CPT_ADAPTER_PATH}")
@@ -149,10 +151,13 @@ model = model.merge_and_unload()
 
 # Step 3: Load SFT adapter on top of the merged CPT model
 model = PeftModel.from_pretrained(model, "{SFT_ADAPTER_PATH}")
+model.eval()
 
-tokenizer = AutoTokenizer.from_pretrained("{BASE_MODEL_PATH}")
+# Load tokenizer from CPT adapter (may have been saved there during training)
+tokenizer = AutoTokenizer.from_pretrained("{CPT_ADAPTER_PATH}", trust_remote_code=True)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
 def build_prompt(conversation):
     prompt = "<s>"
@@ -197,21 +202,23 @@ conversation = []
 conversation.append({{"role": "user", "content": {safe_input}}})
 
 prompt = build_prompt(conversation)
-tokenized = tokenizer(prompt, return_tensors="pt")
-input_ids = tokenized.input_ids.to(model.device)
-attention_mask = tokenized.attention_mask.to(model.device)
+inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-outputs = model.generate(
-    input_ids,
-    attention_mask=attention_mask,
-    pad_token_id=tokenizer.eos_token_id,
-    max_new_tokens=512,
-    do_sample=True,
-    temperature=0.7,
-    top_p=0.9,
-)
+with torch.no_grad():
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=256,
+        do_sample=True,
+        temperature=0.7,
+        top_p=0.9,
+        pad_token_id=tokenizer.pad_token_id,
+    )
 
-resp = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True)
+full_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+if "[/INST]" in full_response:
+    resp = full_response.split("[/INST]")[-1].strip()
+else:
+    resp = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 conversation.append({{"role": "assistant", "content": resp}})
 resp
 """)
