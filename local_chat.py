@@ -114,7 +114,7 @@ def main():
     print("Installing dependencies on cluster...")
     install_result = run_on_cluster(ctx_id, """
 import subprocess
-subprocess.check_call(["pip", "install", "-q", "peft", "bitsandbytes", "accelerate"])
+subprocess.check_call(["pip", "install", "-q", "peft", "bitsandbytes", "accelerate", "transformers", "tokenizers"])
 "Dependencies installed"
 """)
     if "[ERROR]" in str(install_result):
@@ -153,8 +153,11 @@ model = model.merge_and_unload()
 model = PeftModel.from_pretrained(model, "{SFT_ADAPTER_PATH}")
 model.eval()
 
-# Load tokenizer from CPT adapter (may have been saved there during training)
-tokenizer = AutoTokenizer.from_pretrained("{CPT_ADAPTER_PATH}", trust_remote_code=True)
+# Load tokenizer — try CPT adapter path first, fall back to base model
+try:
+    tokenizer = AutoTokenizer.from_pretrained("{CPT_ADAPTER_PATH}", trust_remote_code=True)
+except Exception:
+    tokenizer = AutoTokenizer.from_pretrained("{BASE_MODEL_PATH}", trust_remote_code=True)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.pad_token_id = tokenizer.eos_token_id
