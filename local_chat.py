@@ -25,9 +25,10 @@ HOST = "<FILL_IN_DATABRICKS_HOST>"          # e.g. "https://adb-1234567890.12.az
 TOKEN = "<FILL_IN_PAT>"                     # your Databricks personal access token
 CLUSTER_ID = "<FILL_IN_CLUSTER_ID>"         # e.g. "0218-153045-abc123"
 
-# Paths to your model on the cluster
-BASE_MODEL_PATH = "<FILL_IN_BASE_MODEL_PATH>"   # e.g. "/dbfs/mnt/models/cpt_model_mistral"
-ADAPTER_PATH = "<FILL_IN_ADAPTER_PATH>"          # e.g. "/dbfs/mnt/models/sft_model_mistral"
+# Model paths on the cluster
+BASE_MODEL_PATH = "mistralai/Mistral-7B-v0.3"           # original HF base model
+CPT_ADAPTER_PATH = "<FILL_IN_CPT_ADAPTER_PATH>"         # e.g. "runs:/<run_id>/model" or Volume path
+SFT_ADAPTER_PATH = "<FILL_IN_SFT_ADAPTER_PATH>"         # e.g. "runs:/<run_id>/model" or Volume path
 # ---------------------------------------------------------------------------
 
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
@@ -123,12 +124,20 @@ quantization_config = BitsAndBytesConfig(
     bnb_4bit_quant_type="nf4",
 )
 
+# Step 1: Load base Mistral model
 base = AutoModelForCausalLM.from_pretrained(
     "{BASE_MODEL_PATH}",
     quantization_config=quantization_config,
     device_map="auto",
 )
-model = PeftModel.from_pretrained(base, "{ADAPTER_PATH}")
+
+# Step 2: Load CPT adapter and merge into base
+model = PeftModel.from_pretrained(base, "{CPT_ADAPTER_PATH}")
+model = model.merge_and_unload()
+
+# Step 3: Load SFT adapter on top of the merged CPT model
+model = PeftModel.from_pretrained(model, "{SFT_ADAPTER_PATH}")
+
 tokenizer = AutoTokenizer.from_pretrained("{BASE_MODEL_PATH}")
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
