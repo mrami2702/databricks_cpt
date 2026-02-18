@@ -6,8 +6,8 @@
 # MAGIC question-answer pairs generated from your scientific data.
 # MAGIC
 # MAGIC **Prerequisites:**
-# MAGIC 1. CPT model saved at `/dbfs/mnt/models/cpt_model_mistral`
-# MAGIC 2. SFT data generated in `dev_europa.gold_roses.sft_training_data`
+# MAGIC 1. CPT model saved (fill in path below)
+# MAGIC 2. SFT data generated in Unity Catalog (fill in table names below)
 # MAGIC
 # MAGIC **Run this AFTER:**
 # MAGIC - `train_cpt_mistral.py` (Phase 1)
@@ -30,12 +30,14 @@ dbutils.library.restartPython()
 
 config = {
     "model": {
-        "cpt_model_path": "/dbfs/mnt/models/cpt_model_mistral",
+        # TODO: Fill in the path to your CPT model
+        "cpt_model_path": "",  # e.g. "/dbfs/mnt/models/cpt_model_mistral"
     },
     "data": {
-        "catalog": "dev_europa",
-        "schema": "gold_roses",
-        "sft_table": "sft_training_data",
+        # TODO: Fill in your Unity Catalog location
+        "catalog": "",    # e.g. "dev_europa"
+        "schema": "",     # e.g. "gold_roses"
+        "sft_table": "",  # e.g. "sft_training_data"
         # Set this to also include MLflow Q&A pairs (when available)
         "mlflow_table": None,  # e.g. "sft_mlflow_data"
         "val_ratio": 0.05,
@@ -65,13 +67,15 @@ config = {
                            "gate_proj", "up_proj", "down_proj"],
     },
     "output": {
-        "output_dir": "/dbfs/mnt/models/sft_model_mistral",
+        # TODO: Fill in where to save the SFT model
+        "output_dir": "",  # e.g. "/dbfs/mnt/models/sft_model_mistral"
         "logging_steps": 10,
         "report_to": "mlflow",
     },
     "mlflow": {
-        "experiment_name": "/Shared/cpt-sft-mistral",
-        "run_name": "sft-mistral-7b-v0.3",
+        # TODO: Fill in your MLflow experiment path
+        "experiment_name": "",  # e.g. "/Shared/cpt-sft-mistral"
+        "run_name": "sft-mistral-7b-v1",
     },
 }
 
