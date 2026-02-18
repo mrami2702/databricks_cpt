@@ -158,10 +158,9 @@ def build_prompt(conversation):
     prompt = ""
     for msg in conversation:
         if msg["role"] == "user":
-            prompt += f"Q: {{msg['content']}}\\n"
+            prompt += "Q: " + msg["content"] + "\\n"
         elif msg["role"] == "assistant":
-            prompt += f"A: {{msg['content']}}\\n\\n"
-    # Add the A: prefix so the model knows to start answering
+            prompt += "A: " + msg["content"] + "\\n\\n"
     prompt += "A:"
     return prompt
 
