@@ -230,24 +230,41 @@ json.dumps(responses)
             print(f"\n{result}")
             continue
 
+        # The result may come back with extra quotes from the execution API
         try:
-            responses = json.loads(result)
+            parsed = json.loads(result)
+            # If it was double-encoded (string within string), parse again
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            responses = parsed
         except (json.JSONDecodeError, TypeError):
             print(f"\nUnexpected response format: {result}")
             continue
 
-        # Display side by side
+        # Display each model's response in its own formatted block
+        print()
+        print(f"{'=' * 70}")
+        print(f"  QUESTION: {user_input}")
+        print(f"{'=' * 70}")
+
         for model_name, response in responses.items():
             print()
-            print(f"{'=' * 70}")
-            print(f"  {model_name}")
-            print(f"{'=' * 70}")
-            for word in response.split():
-                print(word, end=" ", flush=True)
-                time.sleep(0.02)
+            print(f"  --- {model_name} ---")
             print()
+            # Word wrap the response with indentation
+            words = response.split()
+            line = "    "
+            for word in words:
+                if len(line) + len(word) + 1 > 70:
+                    print(line)
+                    line = "    " + word
+                else:
+                    line += (" " if line.strip() else "") + word
+            if line.strip():
+                print(line)
 
-        print(f"\n{'-' * 70}")
+        print()
+        print(f"{'=' * 70}")
 
 
 if __name__ == "__main__":
