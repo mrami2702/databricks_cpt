@@ -231,21 +231,39 @@ json.dumps(responses)
             continue
 
         # Parse the result — may come back as JSON string or Python dict repr
-        try:
-            if isinstance(result, dict):
-                responses = result
-            else:
-                try:
-                    parsed = json.loads(result)
-                    if isinstance(parsed, str):
-                        parsed = json.loads(parsed)
+        import ast
+        responses = None
+        if isinstance(result, dict):
+            responses = result
+        else:
+            # Try JSON first
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
                     responses = parsed
-                except (json.JSONDecodeError, TypeError):
-                    # Execution API may return Python repr with single quotes
-                    import ast
+                elif isinstance(parsed, str):
+                    # Double-encoded
+                    responses = json.loads(parsed)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            # Try Python repr (single quotes)
+            if responses is None:
+                try:
                     responses = ast.literal_eval(result)
-        except Exception:
-            print(f"\nUnexpected response format: {result}")
+                except Exception:
+                    pass
+
+            # Try replacing single quotes with double quotes
+            if responses is None:
+                try:
+                    responses = json.loads(result.replace("'", '"'))
+                except Exception:
+                    pass
+
+        if not isinstance(responses, dict):
+            print(f"\nCould not parse response. Raw output:")
+            print(result[:500])
             continue
 
         # Display each model's response in its own formatted block
