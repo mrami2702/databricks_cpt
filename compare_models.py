@@ -214,57 +214,32 @@ print("All models loaded!")
 
         safe_input = json.dumps(user_input)
 
-        # Query all three models
-        result = run_on_cluster(ctx_id, f"""
-import json
-
-question = {safe_input}
-responses = {{}}
-for name, m in models.items():
-    responses[name] = generate_response(m, question)
-
-json.dumps(responses)
+        # Query each model separately to avoid parsing issues
+        print("\n  Querying Base Mistral...", end="", flush=True)
+        base_resp = run_on_cluster(ctx_id, f"""
+generate_response(models["base"], {safe_input})
 """)
+        print(" done.")
 
-        if "[ERROR]" in str(result):
-            print(f"\n{result}")
-            continue
+        print("  Querying CPT...", end="", flush=True)
+        cpt_resp = run_on_cluster(ctx_id, f"""
+generate_response(models["cpt"], {safe_input})
+""")
+        print(" done.")
 
-        # Parse the result — may come back as JSON string or Python dict repr
-        import ast
-        responses = None
-        if isinstance(result, dict):
-            responses = result
-        else:
-            # Try JSON first
-            try:
-                parsed = json.loads(result)
-                if isinstance(parsed, dict):
-                    responses = parsed
-                elif isinstance(parsed, str):
-                    # Double-encoded
-                    responses = json.loads(parsed)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        print("  Querying SFT...", end="", flush=True)
+        sft_resp = run_on_cluster(ctx_id, f"""
+generate_response(models["sft"], {safe_input})
+""")
+        print(" done.")
 
-            # Try Python repr (single quotes)
-            if responses is None:
-                try:
-                    responses = ast.literal_eval(result)
-                except Exception:
-                    pass
+        result = {
+            "Base Mistral": base_resp or "",
+            "CPT": cpt_resp or "",
+            "SFT": sft_resp or "",
+        }
 
-            # Try replacing single quotes with double quotes
-            if responses is None:
-                try:
-                    responses = json.loads(result.replace("'", '"'))
-                except Exception:
-                    pass
-
-        if not isinstance(responses, dict):
-            print(f"\nCould not parse response. Raw output:")
-            print(result[:500])
-            continue
+        responses = result
 
         # Display each model's response in its own formatted block
         print()
