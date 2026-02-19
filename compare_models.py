@@ -230,14 +230,21 @@ json.dumps(responses)
             print(f"\n{result}")
             continue
 
-        # The result may come back with extra quotes from the execution API
+        # Parse the result — may come back as JSON string or Python dict repr
         try:
-            parsed = json.loads(result)
-            # If it was double-encoded (string within string), parse again
-            if isinstance(parsed, str):
-                parsed = json.loads(parsed)
-            responses = parsed
-        except (json.JSONDecodeError, TypeError):
+            if isinstance(result, dict):
+                responses = result
+            else:
+                try:
+                    parsed = json.loads(result)
+                    if isinstance(parsed, str):
+                        parsed = json.loads(parsed)
+                    responses = parsed
+                except (json.JSONDecodeError, TypeError):
+                    # Execution API may return Python repr with single quotes
+                    import ast
+                    responses = ast.literal_eval(result)
+        except Exception:
             print(f"\nUnexpected response format: {result}")
             continue
 
