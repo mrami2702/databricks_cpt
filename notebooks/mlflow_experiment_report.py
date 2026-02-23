@@ -261,26 +261,78 @@ else:
 
 # COMMAND ----------
 
-# Parameters
+# --- Plain-English explanations for parameters and metrics ---
+# Think of these as the "what does this knob do?" labels on a machine
+
+param_explanations = {
+    "learning_rate": "How fast the model adjusts its knowledge — like a volume dial. Too high and it forgets what it knew, too low and it barely learns anything new.",
+    "num_epochs": "How many times the model reads through the entire dataset — like re-reading a textbook multiple times to absorb more.",
+    "max_steps": "A hard cap on training updates. Training stops here even if there are more epochs left — like a timer on an experiment.",
+    "lora_r": "LoRA rank — controls how much new capacity the model gets. Higher rank = more room to learn, but also more memory. Like choosing the size of a notebook to write in.",
+    "lora_alpha": "Scaling factor for LoRA. Usually 2x the rank. Controls how strongly the new learned weights influence predictions.",
+    "lora_dropout": "Randomly ignores some adapter connections during training to prevent overfitting — like intentionally leaving out flashcards to test real understanding.",
+    "per_device_train_batch_size": "How many examples the model sees before updating its weights. Larger = smoother learning but more GPU memory.",
+    "gradient_accumulation_steps": "Simulates a larger batch by accumulating updates across multiple mini-batches — a memory-saving trick that doesn't sacrifice quality.",
+    "training_type": "CPT = learning domain vocabulary (reading). SFT = learning to answer questions (practicing Q&A).",
+    "base_model": "The pre-trained model we started from — its existing knowledge before we taught it anything new.",
+    "sft_pairs": "Number of question-answer pairs used for training — the size of the study guide.",
+    "val_pairs": "Held-out Q&A pairs used to check if the model is actually learning vs. just memorizing.",
+    "bf16": "Uses half-precision math (bfloat16) to cut memory usage in half with minimal accuracy loss — like rounding to fewer decimal places.",
+    "optim": "The optimization algorithm. paged_adamw_8bit is memory-efficient — it figures out the best direction to adjust weights each step.",
+    "weight_decay": "Gently shrinks weights toward zero each step to prevent overfitting — like adding friction to keep the model from over-correcting.",
+    "warmup_ratio": "Starts with a very low learning rate and gradually increases. Like warming up before a workout — avoids damaging early updates.",
+    "lr_scheduler_type": "How the learning rate changes over time. 'cosine' starts strong and gradually slows down, like decelerating into a parking spot.",
+    "max_seq_length": "Maximum number of tokens (roughly words) the model processes at once. Longer = more context but more memory.",
+    "max_grad_norm": "Clips large gradient updates to prevent training instability — like a safety valve on a pressure cooker.",
+    "save_steps": "How often a checkpoint is saved. If training crashes, you can resume from the last checkpoint.",
+    "save_total_limit": "Only keeps this many checkpoints on disk — older ones are deleted to save storage.",
+    "train_samples": "Total number of training examples the model learned from.",
+}
+
+metric_explanations = {
+    "final_loss": "The model's error rate at the end of training. Lower = better. Think of it as the score on a final exam — closer to 0 means fewer mistakes.",
+    "train_loss": "Same as final loss — how wrong the model's predictions were on the training data.",
+    "loss": "How wrong the model's predictions are. Lower = better. This is the primary number to watch.",
+    "eval_loss": "Error rate on held-out data the model never trained on. Measures real-world performance — like a pop quiz vs. homework.",
+    "total_steps": "Total number of weight updates performed. Each step = one batch of data processed and learned from.",
+    "train_runtime": "Total wall-clock time spent training in seconds.",
+    "train_samples_per_second": "Throughput — how many examples the model processes per second. Higher = more efficient use of GPU.",
+    "train_steps_per_second": "How many weight update steps happen per second.",
+    "epoch": "How many complete passes through the data were completed.",
+}
+
+# Parameters with explanations
 params_html = ""
 for k, v in sorted(params.items()):
+    label = k.replace('_', ' ').title()
+    explanation = param_explanations.get(k, "")
+    desc_html = f'<div style="font-size: 11px; color: #999; margin-top: 2px; line-height: 1.4;">{explanation}</div>' if explanation else ""
     params_html += f"""
-    <div class="row">
-        <span class="row-label">{k.replace('_', ' ').title()}</span>
-        <span class="row-value">{v}</span>
+    <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <span class="row-label">{label}</span>
+            <span class="row-value" style="white-space: nowrap; margin-left: 12px;">{v}</span>
+        </div>
+        {desc_html}
     </div>"""
 
-# Metrics
+# Metrics with explanations
 metrics_html = ""
 for k, v in sorted(metrics.items()):
     if isinstance(v, float):
         v_str = f"{v:.6g}"
     else:
         v_str = str(v)
+    label = k.replace('_', ' ').title()
+    explanation = metric_explanations.get(k, "")
+    desc_html = f'<div style="font-size: 11px; color: #999; margin-top: 2px; line-height: 1.4;">{explanation}</div>' if explanation else ""
     metrics_html += f"""
-    <div class="row">
-        <span class="row-label">{k.replace('_', ' ').title()}</span>
-        <span class="row-value">{v_str}</span>
+    <div style="padding: 12px 0; border-bottom: 1px solid #f0f0f0;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <span class="row-label">{label}</span>
+            <span class="row-value" style="white-space: nowrap; margin-left: 12px;">{v_str}</span>
+        </div>
+        {desc_html}
     </div>"""
 
 # Tags
@@ -296,22 +348,25 @@ if tags:
 details_html = f"""
 <div class="rpt">
     <div class="section">Run Details</div>
+    <p style="color: #666; font-size: 13px; margin-top: -8px;">Each parameter and metric includes a plain-English explanation of what it means and why it matters.</p>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
         <div>
             <div class="card">
-                <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px;">
+                <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 4px;">
                     Parameters
                     <span style="font-size: 12px; color: #999; font-weight: 400; margin-left: 8px;">{len(params)} logged</span>
                 </div>
+                <div style="font-size: 12px; color: #999; margin-bottom: 12px;">The settings and choices that went INTO training — the recipe.</div>
                 {params_html if params_html else '<p style="color: #999;">No parameters logged</p>'}
             </div>
         </div>
         <div>
             <div class="card">
-                <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px;">
+                <div style="font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 4px;">
                     Metrics
                     <span style="font-size: 12px; color: #999; font-weight: 400; margin-left: 8px;">{len(metrics)} tracked</span>
                 </div>
+                <div style="font-size: 12px; color: #999; margin-bottom: 12px;">The scores that came OUT of training — the taste test results.</div>
                 {metrics_html if metrics_html else '<p style="color: #999;">No metrics logged</p>'}
             </div>
             {'<div class="card"><div style="font-size: 16px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px;">Tags</div>' + tags_html + '</div>' if tags_html else ''}
