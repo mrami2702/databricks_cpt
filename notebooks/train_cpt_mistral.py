@@ -12,6 +12,32 @@
 # MAGIC - Instance: GPU-enabled (Standard_NC6s_v3 = 1x V100 16GB)
 # MAGIC
 # MAGIC **Model:** mistralai/Mistral-7B-v0.3 (7.2B params, only ~1% trained via QLoRA)
+# MAGIC
+# MAGIC ---
+# MAGIC
+# MAGIC ### TODO before next training run — MLflow logging gaps
+# MAGIC
+# MAGIC The `mlflow.log_params()` call in Step 7 is missing several values that
+# MAGIC the MLflow experiment report notebook needs. Add these to the log_params dict:
+# MAGIC
+# MAGIC ```python
+# MAGIC "training_type": "CPT",
+# MAGIC "base_model": config["model"]["name"],       # currently logged as "model_name" — report expects "base_model"
+# MAGIC "lora_alpha": qlora_config["lora_alpha"],
+# MAGIC "lora_dropout": qlora_config["lora_dropout"],
+# MAGIC "per_device_train_batch_size": training_config["per_device_train_batch_size"],
+# MAGIC "max_steps": training_config.get("max_steps", -1),
+# MAGIC ```
+# MAGIC
+# MAGIC Also add final metrics AFTER `trainer.train()` (like the SFT notebook does):
+# MAGIC
+# MAGIC ```python
+# MAGIC train_result = trainer.train()      # <-- capture the return value
+# MAGIC mlflow.log_metrics({
+# MAGIC     "final_loss": train_result.training_loss,
+# MAGIC     "total_steps": train_result.global_step,
+# MAGIC })
+# MAGIC ```
 
 # COMMAND ----------
 
