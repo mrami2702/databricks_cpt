@@ -1,0 +1,665 @@
+<!-- Visual workflow diagram for the multi-agent scientific assistant system.
+     Open in any browser — no build step, no dependencies, self-contained HTML/CSS/JS.
+     Shows: system architecture (all agents + tools), an example end-to-end query flow,
+     and a full tool inventory table. Generated alongside the agents/ codebase.
+     See agents/TODO.md for planned additions (ScientificAdvisorAgent, ranking, join tools). -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multi-Agent Scientific Assistant — Workflow</title>
+  <style>
+    /* ── Reset & Base ──────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --root-c:    #a371f7;
+      --catalog-c: #58a6ff;
+      --job-c:     #f78166;
+      --scholar-c: #3fb950;
+      --edx-c:     #1f9d7b;
+      --tool-bg:   #1c2128;
+      --arrow:     #484f58;
+      --highlight: #fffb9e;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 40px 24px 80px;
+    }
+
+    h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.4px; }
+    h2 { font-size: 1.1rem; font-weight: 600; text-transform: uppercase;
+         letter-spacing: 1px; color: var(--muted); margin-bottom: 20px; }
+    h3 { font-size: 0.95rem; font-weight: 700; }
+    p  { font-size: 0.875rem; line-height: 1.6; color: var(--muted); }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    .wrapper { max-width: 1300px; margin: 0 auto; }
+
+    /* ── Header ────────────────────────────────────────────────── */
+    .header { margin-bottom: 48px; border-bottom: 1px solid var(--border); padding-bottom: 28px; }
+    .header p { margin-top: 8px; font-size: 0.95rem; }
+    .badge {
+      display: inline-block; padding: 2px 10px; border-radius: 20px;
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.5px;
+      background: #161b22; border: 1px solid var(--border);
+      color: var(--muted); margin-left: 10px; vertical-align: middle;
+    }
+
+    /* ── Section wrapper ───────────────────────────────────────── */
+    .section { margin-bottom: 56px; }
+
+    /* ── Architecture grid ─────────────────────────────────────── */
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 220px 60px 1fr;
+      gap: 0;
+      align-items: start;
+    }
+
+    .root-box {
+      background: var(--surface);
+      border: 1.5px solid var(--root-c);
+      border-radius: 12px;
+      padding: 18px 16px;
+      grid-column: 1;
+    }
+    .root-box .agent-label {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .root-box h3 { color: var(--root-c); }
+    .root-box p  { font-size: 0.8rem; margin-top: 6px; }
+    .model-tag {
+      display: inline-block; margin-top: 10px; padding: 3px 9px;
+      background: rgba(163,113,247,0.12); border-radius: 6px;
+      font-size: 0.72rem; color: var(--root-c); border: 1px solid rgba(163,113,247,0.3);
+    }
+
+    /* arrow column */
+    .arch-arrow {
+      grid-column: 2;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding-top: 32px;
+    }
+    .arch-arrow svg { width: 48px; height: 24px; }
+
+    /* sub-agents column */
+    .sub-agents {
+      grid-column: 3;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* ── Agent Card ────────────────────────────────────────────── */
+    .agent-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      transition: border-color 0.2s;
+    }
+    .agent-card:hover { border-color: var(--agent-color, var(--border)); }
+    .agent-card .agent-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .agent-card h3 { font-size: 0.9rem; }
+    .agent-card > p { font-size: 0.78rem; margin-bottom: 12px; }
+
+    /* ── Tool list ─────────────────────────────────────────────── */
+    .tool-list { display: flex; flex-wrap: wrap; gap: 5px; }
+    .tool-chip {
+      background: var(--tool-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 3px 8px;
+      font-size: 0.7rem;
+      font-family: "SFMono-Regular", "Consolas", monospace;
+      color: var(--muted);
+    }
+    .tool-chip.geo    { border-color: rgba(31,157,123,0.5); color: #1f9d7b; }
+    .tool-chip.cat    { border-color: rgba(88,166,255,0.4); color: #58a6ff; }
+    .tool-chip.job    { border-color: rgba(247,129,102,0.4); color: #f78166; }
+    .tool-chip.sch    { border-color: rgba(63,185,80,0.4);  color: #3fb950; }
+
+    /* ── Flow Diagram ──────────────────────────────────────────── */
+    .flow-wrapper {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 32px;
+      overflow-x: auto;
+    }
+
+    .query-banner {
+      background: rgba(255,251,158,0.06);
+      border: 1px solid rgba(255,251,158,0.25);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 36px;
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+    .query-banner strong { color: var(--highlight); display: block; margin-bottom: 4px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* Step track */
+    .flow-track { display: flex; flex-direction: column; gap: 0; }
+
+    .flow-step {
+      display: grid;
+      grid-template-columns: 32px 8px 1fr;
+      gap: 0 12px;
+      align-items: start;
+      position: relative;
+    }
+
+    /* vertical connector line */
+    .flow-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 32px;
+      bottom: -16px;
+      width: 2px;
+      background: var(--border);
+    }
+
+    .step-num {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700;
+      flex-shrink: 0; z-index: 1;
+    }
+
+    .flow-step + .flow-step { margin-top: 16px; }
+
+    .flow-body {
+      grid-column: 3;
+      background: var(--tool-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .flow-body.root-step   { border-color: rgba(163,113,247,0.4); }
+    .flow-body.catalog-step { border-color: rgba(88,166,255,0.4); }
+    .flow-body.edx-step    { border-color: rgba(31,157,123,0.4); }
+    .flow-body.output-step { border-color: rgba(63,185,80,0.4); }
+
+    .flow-agent-label {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .flow-agent-label span { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .flow-desc { font-size: 0.82rem; color: var(--text); margin-bottom: 10px; line-height: 1.5; }
+
+    .flow-tools { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
+    .flow-tool {
+      padding: 3px 9px; border-radius: 5px;
+      font-size: 0.7rem; font-family: "SFMono-Regular", "Consolas", monospace;
+      font-weight: 600;
+    }
+    .flow-tool.root-t    { background: rgba(163,113,247,0.12); color: var(--root-c);    border: 1px solid rgba(163,113,247,0.3); }
+    .flow-tool.catalog-t { background: rgba(88,166,255,0.12);  color: var(--catalog-c); border: 1px solid rgba(88,166,255,0.3); }
+    .flow-tool.edx-t     { background: rgba(31,157,123,0.12);  color: var(--edx-c);     border: 1px solid rgba(31,157,123,0.3); }
+    .flow-tool.output-t  { background: rgba(63,185,80,0.12);   color: var(--scholar-c); border: 1px solid rgba(63,185,80,0.3); }
+
+    .returns-label {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--muted); margin-top: 10px; margin-bottom: 4px;
+    }
+    .returns-value {
+      font-size: 0.8rem; font-style: italic; color: var(--text);
+      padding: 8px 12px; background: rgba(255,255,255,0.03);
+      border-left: 3px solid var(--border); border-radius: 0 5px 5px 0;
+    }
+
+    /* ── Legend ────────────────────────────────────────────────── */
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 24px; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; }
+    .legend-item .dot { width: 8px; height: 8px; }
+
+    /* ── Tool inventory table ──────────────────────────────────── */
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .inv-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .inv-card .agent-label { margin-bottom: 12px; }
+    .inv-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+    .inv-row:last-child { border-bottom: none; }
+    .inv-fn {
+      font-family: "SFMono-Regular", "Consolas", monospace;
+      font-size: 0.72rem; flex: 1; padding-top: 1px;
+    }
+    .inv-desc { color: var(--muted); font-size: 0.75rem; flex: 2; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <div class="header">
+    <h1>Multi-Agent Scientific Assistant <span class="badge">Google ADK</span></h1>
+    <p>Workflow architecture — how a user query routes through agents and tools to a final answer.</p>
+  </div>
+
+  <!-- ── Section 1: Architecture ─────────────────────────────── -->
+  <div class="section">
+    <h2>System Architecture</h2>
+
+    <div class="arch-grid">
+
+      <!-- Root Agent -->
+      <div class="root-box">
+        <div class="agent-label">
+          <div class="dot" style="background:var(--root-c)"></div>
+          <h3 style="color:var(--root-c)">RootAgent</h3>
+        </div>
+        <p>Central coordinator. Reads user intent, selects the right specialist sub-agent(s), and synthesizes all responses into a final answer.</p>
+        <div class="model-tag">Claude (Vertex AI)</div>
+      </div>
+
+      <!-- Arrow -->
+      <div class="arch-arrow">
+        <svg viewBox="0 0 48 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="2" y1="12" x2="38" y2="12" stroke="#484f58" stroke-width="1.5"/>
+          <polyline points="30,6 38,12 30,18" stroke="#484f58" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <!-- Sub-agents -->
+      <div class="sub-agents">
+
+        <!-- Catalog Agent -->
+        <div class="agent-card" style="--agent-color:var(--catalog-c)">
+          <div class="agent-label">
+            <div class="dot" style="background:var(--catalog-c)"></div>
+            <h3 style="color:var(--catalog-c)">DatabricksCatalogAgent</h3>
+          </div>
+          <p>Unity Catalog exploration — tables, schemas, SQL queries, profiling, null rates, duplicates.</p>
+          <div class="tool-list">
+            <span class="tool-chip cat">explore_catalogs</span>
+            <span class="tool-chip cat">explore_schemas</span>
+            <span class="tool-chip cat">list_tables</span>
+            <span class="tool-chip cat">describe_table</span>
+            <span class="tool-chip cat">search_tables</span>
+            <span class="tool-chip cat">search_columns</span>
+            <span class="tool-chip cat">preview_data</span>
+            <span class="tool-chip cat">query_data</span>
+            <span class="tool-chip cat">run_sql</span>
+            <span class="tool-chip cat">get_dataset_schema</span>
+            <span class="tool-chip cat">get_catalog_overview</span>
+            <span class="tool-chip cat">get_null_summary</span>
+            <span class="tool-chip cat">get_duplicate_check</span>
+            <span class="tool-chip cat">compare_table_schema</span>
+            <span class="tool-chip cat">profile_dataset</span>
+          </div>
+        </div>
+
+        <!-- Job Agent -->
+        <div class="agent-card" style="--agent-color:var(--job-c)">
+          <div class="agent-label">
+            <div class="dot" style="background:var(--job-c)"></div>
+            <h3 style="color:var(--job-c)">DatabricksJobAgent</h3>
+          </div>
+          <p>Compute automation — cluster lifecycle, job triggers, notebook runs, status monitoring.</p>
+          <div class="tool-list">
+            <span class="tool-chip job">list_clusters</span>
+            <span class="tool-chip job">get_cluster_status</span>
+            <span class="tool-chip job">start_cluster</span>
+            <span class="tool-chip job">stop_cluster</span>
+            <span class="tool-chip job">list_jobs</span>
+            <span class="tool-chip job">get_job</span>
+            <span class="tool-chip job">run_job_now</span>
+            <span class="tool-chip job">get_job_run_status</span>
+            <span class="tool-chip job">cancel_job_run</span>
+            <span class="tool-chip job">get_job_run_output</span>
+            <span class="tool-chip job">run_notebook</span>
+            <span class="tool-chip job">list_notebook_runs</span>
+          </div>
+        </div>
+
+        <!-- Scholar Agent -->
+        <div class="agent-card" style="--agent-color:var(--scholar-c)">
+          <div class="agent-label">
+            <div class="dot" style="background:var(--scholar-c)"></div>
+            <h3 style="color:var(--scholar-c)">GoogleScholarAgent</h3>
+          </div>
+          <p>Academic literature search via Serper / Google Scholar — papers, authors, citations, topics.</p>
+          <div class="tool-list">
+            <span class="tool-chip sch">search_papers</span>
+            <span class="tool-chip sch">search_recent_papers</span>
+            <span class="tool-chip sch">get_paper_citations</span>
+            <span class="tool-chip sch">search_authors</span>
+            <span class="tool-chip sch">search_by_topic</span>
+          </div>
+        </div>
+
+        <!-- EDX Agent -->
+        <div class="agent-card" style="--agent-color:var(--edx-c)">
+          <div class="agent-label">
+            <div class="dot" style="background:var(--edx-c)"></div>
+            <h3 style="color:var(--edx-c)">EDXDataDiscoveryAgent</h3>
+          </div>
+          <p>External geospatial &amp; mineral dataset discovery via NETL EDX (DOE) — 17,000+ energy and geology datasets. Finds data to enrich or complement internal Databricks tables.</p>
+          <div class="tool-list">
+            <span class="tool-chip geo">search_edx_datasets</span>
+            <span class="tool-chip geo">search_edx_geospatial</span>
+            <span class="tool-chip geo">search_edx_by_location</span>
+            <span class="tool-chip geo">search_edx_multi_criteria</span>
+            <span class="tool-chip geo">search_edx_by_tag</span>
+            <span class="tool-chip geo">search_edx_by_format</span>
+            <span class="tool-chip geo">find_edx_datasets_like</span>
+            <span class="tool-chip geo">get_edx_dataset_details</span>
+            <span class="tool-chip geo">list_edx_tags</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend" style="margin-top:20px">
+      <div class="legend-item"><div class="dot" style="background:var(--root-c)"></div> RootAgent (coordinator)</div>
+      <div class="legend-item"><div class="dot" style="background:var(--catalog-c)"></div> DatabricksCatalogAgent</div>
+      <div class="legend-item"><div class="dot" style="background:var(--job-c)"></div> DatabricksJobAgent</div>
+      <div class="legend-item"><div class="dot" style="background:var(--scholar-c)"></div> GoogleScholarAgent</div>
+      <div class="legend-item"><div class="dot" style="background:var(--edx-c)"></div> EDXDataDiscoveryAgent</div>
+    </div>
+  </div>
+
+  <!-- ── Section 2: Example Query Flow ───────────────────────── -->
+  <div class="section">
+    <h2>Example Query — Geospatial Data Discovery</h2>
+
+    <div class="flow-wrapper">
+
+      <!-- User query banner -->
+      <div class="query-banner">
+        <strong>User Query</strong>
+        "Hey, I have data in the <code style="color:var(--catalog-c)">dev_europa.gold_roses</code> schema — it has mineral sample data with element concentrations, coordinates, and depth measurements. Can you find me external datasets that are similar or could add value to what I have? My data is a bit sparse and I need more on these minerals."
+      </div>
+
+      <div class="flow-track">
+
+        <!-- Step 1: Root receives -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(163,113,247,0.15); color:var(--root-c); border:1.5px solid rgba(163,113,247,0.4)">1</div>
+          <div></div>
+          <div class="flow-body root-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--root-c)"></div>
+              <span style="color:var(--root-c)">RootAgent</span>
+              <span style="color:var(--muted); font-size:0.72rem; margin-left:4px">— receives query</span>
+            </div>
+            <div class="flow-desc">Identifies this as a <strong>data discovery request</strong> referencing an internal Databricks schema. Decides on a two-step chain: first understand the internal data, then search for external matches.</div>
+            <div class="flow-tools">
+              <span class="flow-tool root-t">→ routes to DatabricksCatalogAgent</span>
+              <span class="flow-tool root-t">→ then EDXDataDiscoveryAgent</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: Catalog agent -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(88,166,255,0.15); color:var(--catalog-c); border:1.5px solid rgba(88,166,255,0.4)">2</div>
+          <div></div>
+          <div class="flow-body catalog-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--catalog-c)"></div>
+              <span style="color:var(--catalog-c)">DatabricksCatalogAgent</span>
+              <span style="color:var(--muted); font-size:0.72rem; margin-left:4px">— inspects the schema</span>
+            </div>
+            <div class="flow-desc">Explores the <code style="color:var(--catalog-c)">dev_europa.gold_roses</code> schema to understand what data exists — column names, data types, geographic extent, and sample values.</div>
+            <div class="flow-tools">
+              <span class="flow-tool catalog-t">describe_table</span>
+              <span class="flow-tool catalog-t">get_dataset_schema</span>
+              <span class="flow-tool catalog-t">preview_data</span>
+              <span class="flow-tool catalog-t">profile_dataset</span>
+            </div>
+            <div class="returns-label">Returns to RootAgent ↓</div>
+            <div class="returns-value">32 tables found. Key columns: <em>element_name, concentration_ppm, latitude, longitude, depth_m, sample_id, rock_type</em>. Mineral types include silica, calcite, iron oxide, rare earth elements. Location: ~47°N, 108°W (Wyoming region). Numeric columns sparse — avg 23% null rate on concentration fields.</div>
+          </div>
+        </div>
+
+        <!-- Step 3: Root passes context -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(163,113,247,0.15); color:var(--root-c); border:1.5px solid rgba(163,113,247,0.4)">3</div>
+          <div></div>
+          <div class="flow-body root-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--root-c)"></div>
+              <span style="color:var(--root-c)">RootAgent</span>
+              <span style="color:var(--muted); font-size:0.72rem; margin-left:4px">— builds context for EDX</span>
+            </div>
+            <div class="flow-desc">Packages schema findings into a search context: minerals (silica, iron oxide, REE), location (Wyoming), key variables (concentration, depth, rock type), format need (CSV for joining), and geospatial requirement (coordinates must be present).</div>
+            <div class="flow-tools">
+              <span class="flow-tool root-t">→ routes to EDXDataDiscoveryAgent with context</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 4: EDX agent searches -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(31,157,123,0.15); color:var(--edx-c); border:1.5px solid rgba(31,157,123,0.4)">4</div>
+          <div></div>
+          <div class="flow-body edx-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--edx-c)"></div>
+              <span style="color:var(--edx-c)">EDXDataDiscoveryAgent</span>
+              <span style="color:var(--muted); font-size:0.72rem; margin-left:4px">— discovers matching external datasets</span>
+            </div>
+            <div class="flow-desc">Runs a sequence of targeted searches against the NETL EDX CKAN API using the schema context. Starts by discovering EDX vocabulary, then searches with combined criteria, then drills into the best candidates.</div>
+
+            <div style="margin-top:12px">
+              <div style="font-size:0.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px">Tool call sequence</div>
+
+              <div style="display:flex; flex-direction:column; gap:8px">
+
+                <div style="background:rgba(31,157,123,0.07); border:1px solid rgba(31,157,123,0.25); border-radius:7px; padding:10px 12px">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                    <span class="flow-tool edx-t" style="font-size:0.68rem">list_edx_tags()</span>
+                    <span style="color:var(--muted); font-size:0.72rem">→ discover EDX vocabulary</span>
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--muted)">Finds exact EDX tag names for the domain: "Rare Earth Elements", "Geochemistry", "Wyoming", "Well logs", "Mineralization" — avoids term mismatch in subsequent searches.</div>
+                </div>
+
+                <div style="background:rgba(31,157,123,0.07); border:1px solid rgba(31,157,123,0.25); border-radius:7px; padding:10px 12px">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                    <span class="flow-tool edx-t" style="font-size:0.68rem">search_edx_multi_criteria(["rare earth elements", "Wyoming", "geochemical"], require_geospatial=True)</span>
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--muted)">AND-search for all three criteria. Returns only datasets matching all of them AND flagged geospatial.</div>
+                </div>
+
+                <div style="background:rgba(31,157,123,0.07); border:1px solid rgba(31,157,123,0.25); border-radius:7px; padding:10px 12px">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                    <span class="flow-tool edx-t" style="font-size:0.68rem">search_edx_by_format("CSV", query="mineral concentration")</span>
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--muted)">Finds CSV-format datasets that can be joined directly to the Databricks table on coordinates or sample_id.</div>
+                </div>
+
+                <div style="background:rgba(31,157,123,0.07); border:1px solid rgba(31,157,123,0.25); border-radius:7px; padding:10px 12px">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                    <span class="flow-tool edx-t" style="font-size:0.68rem">find_edx_datasets_like(["Rare Earth Elements", "Mineralization", "Wyoming"])</span>
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--muted)">Tag-overlap similarity search — finds datasets sharing the most tags with the user's domain. Ranked by overlap count.</div>
+                </div>
+
+                <div style="background:rgba(31,157,123,0.07); border:1px solid rgba(31,157,123,0.25); border-radius:7px; padding:10px 12px">
+                  <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px">
+                    <span class="flow-tool edx-t" style="font-size:0.68rem">get_edx_dataset_details("top-candidate-name")</span>
+                    <span style="color:var(--muted); font-size:0.72rem">× top 3–5 candidates</span>
+                  </div>
+                  <div style="font-size:0.75rem; color:var(--muted)">Retrieves full metadata + resource list with direct download URLs for the most promising datasets.</div>
+                </div>
+
+              </div>
+            </div>
+
+            <div class="returns-label" style="margin-top:14px">Returns to RootAgent ↓</div>
+            <div class="returns-value">5 ranked external datasets with geospatial relevance, download links, file formats, and suggested join strategy for each.</div>
+          </div>
+        </div>
+
+        <!-- Step 5: Root synthesizes -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(163,113,247,0.15); color:var(--root-c); border:1.5px solid rgba(163,113,247,0.4)">5</div>
+          <div></div>
+          <div class="flow-body root-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--root-c)"></div>
+              <span style="color:var(--root-c)">RootAgent</span>
+              <span style="color:var(--muted); font-size:0.72rem; margin-left:4px">— synthesizes final answer</span>
+            </div>
+            <div class="flow-desc">Merges the schema understanding from DatabricksCatalogAgent with the EDX discovery results from EDXDataDiscoveryAgent into a cohesive, human-readable response. Translates raw JSON into enrichment recommendations.</div>
+          </div>
+        </div>
+
+        <!-- Step 6: Output -->
+        <div class="flow-step">
+          <div class="step-num" style="background:rgba(63,185,80,0.15); color:var(--scholar-c); border:1.5px solid rgba(63,185,80,0.4)">6</div>
+          <div></div>
+          <div class="flow-body output-step">
+            <div class="flow-agent-label">
+              <div class="dot" style="background:var(--scholar-c)"></div>
+              <span style="color:var(--scholar-c)">Final Response → User</span>
+            </div>
+            <div class="flow-desc">The user receives a structured enrichment report — no raw JSON, no tool output — just actionable recommendations:</div>
+            <div style="margin-top:10px; padding:14px; background:rgba(63,185,80,0.06); border:1px solid rgba(63,185,80,0.2); border-radius:8px; font-size:0.8rem; line-height:1.7; color:var(--text)">
+              <strong style="color:var(--scholar-c); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:8px">Sample Output</strong>
+              Your <em>gold_roses</em> schema has 32 tables with mineral concentration data (lat/lon coordinates) — concentration fields are ~23% sparse, so enrichment makes sense. Here are 5 external datasets from NETL EDX that can add value:
+              <br><br>
+              <strong>1. Wyoming REE Geochemical Survey (CSV, 2021)</strong> — Covers the same ~47°N region. Join on coordinates (±0.01°). Adds: rare earth concentrations, rock type classifications. <span style="color:var(--edx-c)">↗ edx.netl.doe.gov/dataset/ree-wyoming-survey</span>
+              <br><br>
+              <strong>2. National Mineral Database — Western Basins (Shapefile)</strong> — Bounding box overlaps with your data. Adds: formation names, deposit types, mineralization grades. Join on latitude/longitude.
+              <br><br>
+              <em>+ 3 more datasets with similarity explanations and download links…</em>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Full Tool Inventory ──────────────────────── -->
+  <div class="section">
+    <h2>Full Tool Inventory</h2>
+    <div class="inv-grid">
+
+      <!-- Catalog -->
+      <div class="inv-card">
+        <div class="agent-label" style="margin-bottom:12px">
+          <div class="dot" style="background:var(--catalog-c)"></div>
+          <h3 style="color:var(--catalog-c); font-size:0.85rem">DatabricksCatalogAgent</h3>
+          <span class="badge">15 tools</span>
+        </div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">explore_catalogs</span><span class="inv-desc">List all catalogs in workspace</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">explore_schemas</span><span class="inv-desc">List schemas within a catalog</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">list_tables</span><span class="inv-desc">List all tables in a schema</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">describe_table</span><span class="inv-desc">Column schema + row count</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">search_tables</span><span class="inv-desc">Find tables by keyword</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">search_columns</span><span class="inv-desc">Find columns by name across tables</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">preview_data</span><span class="inv-desc">Sample rows from a table</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">query_data</span><span class="inv-desc">Execute SELECT queries</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">run_sql</span><span class="inv-desc">Execute any SQL (DDL/DML)</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">get_dataset_schema</span><span class="inv-desc">Column types + classification</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">get_catalog_overview</span><span class="inv-desc">All tables + row counts</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">get_null_summary</span><span class="inv-desc">Null % per column</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">get_duplicate_check</span><span class="inv-desc">Duplicate rows on key columns</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">compare_table_schema</span><span class="inv-desc">Schema diff between two tables</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--catalog-c)">profile_dataset</span><span class="inv-desc">Full stats (min/max/mean/stddev/cardinality)</span></div>
+      </div>
+
+      <!-- Job -->
+      <div class="inv-card">
+        <div class="agent-label" style="margin-bottom:12px">
+          <div class="dot" style="background:var(--job-c)"></div>
+          <h3 style="color:var(--job-c); font-size:0.85rem">DatabricksJobAgent</h3>
+          <span class="badge">12 tools</span>
+        </div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">list_clusters</span><span class="inv-desc">All clusters + current state</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">get_cluster_status</span><span class="inv-desc">Detailed cluster info</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">start_cluster</span><span class="inv-desc">Start a terminated cluster</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">stop_cluster</span><span class="inv-desc">Terminate a running cluster</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">list_jobs</span><span class="inv-desc">All jobs in workspace</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">get_job</span><span class="inv-desc">Job config + task definitions</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">run_job_now</span><span class="inv-desc">Trigger immediate job run</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">get_job_run_status</span><span class="inv-desc">State, result, duration</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">cancel_job_run</span><span class="inv-desc">Cancel an active run</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">get_job_run_output</span><span class="inv-desc">Notebook output + error log</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">run_notebook</span><span class="inv-desc">Submit one-off notebook run</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--job-c)">list_notebook_runs</span><span class="inv-desc">Recent runs in workspace</span></div>
+      </div>
+
+      <!-- Scholar -->
+      <div class="inv-card">
+        <div class="agent-label" style="margin-bottom:12px">
+          <div class="dot" style="background:var(--scholar-c)"></div>
+          <h3 style="color:var(--scholar-c); font-size:0.85rem">GoogleScholarAgent</h3>
+          <span class="badge">5 tools</span>
+        </div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--scholar-c)">search_papers</span><span class="inv-desc">Keyword search across Scholar</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--scholar-c)">search_recent_papers</span><span class="inv-desc">Time-filtered paper search</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--scholar-c)">get_paper_citations</span><span class="inv-desc">Citation count for a title</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--scholar-c)">search_authors</span><span class="inv-desc">Author profile + publications</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--scholar-c)">search_by_topic</span><span class="inv-desc">Topic + optional subtopic search</span></div>
+      </div>
+
+      <!-- EDX -->
+      <div class="inv-card">
+        <div class="agent-label" style="margin-bottom:12px">
+          <div class="dot" style="background:var(--edx-c)"></div>
+          <h3 style="color:var(--edx-c); font-size:0.85rem">EDXDataDiscoveryAgent</h3>
+          <span class="badge">9 tools</span>
+        </div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_datasets</span><span class="inv-desc">Free-text keyword search</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_geospatial</span><span class="inv-desc">Keyword search, geospatial only</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_by_location</span><span class="inv-desc">State / basin / region search</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_multi_criteria</span><span class="inv-desc">AND search across multiple terms</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_by_tag</span><span class="inv-desc">Exact EDX taxonomy tag search</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">search_edx_by_format</span><span class="inv-desc">Filter by file format (CSV etc.)</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">find_edx_datasets_like</span><span class="inv-desc">Similarity search from seed tags</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">get_edx_dataset_details</span><span class="inv-desc">Full metadata + download URLs</span></div>
+        <div class="inv-row"><span class="inv-fn" style="color:var(--edx-c)">list_edx_tags</span><span class="inv-desc">Discover EDX tag vocabulary</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Footer ──────────────────────────────────────────────── -->
+  <div style="border-top:1px solid var(--border); padding-top:20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px">
+    <p style="font-size:0.75rem">databricks_cpt — Multi-Agent Scientific Assistant</p>
+    <div style="display:flex; gap:20px">
+      <span style="font-size:0.72rem; color:var(--muted)">Framework: Google ADK</span>
+      <span style="font-size:0.72rem; color:var(--muted)">Models: Claude via GCP Vertex AI</span>
+      <span style="font-size:0.72rem; color:var(--muted)">External: NETL EDX (CKAN API) · Serper Scholar</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

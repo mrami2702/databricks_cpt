@@ -59,10 +59,9 @@ config = {
         "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
     },
     "data": {
-        # Unity Catalog source — all tables in this schema will be loaded
-        "catalog": "dev_europa",
-        "schema": "gold_roses",
-        "val_ratio": 0.05,
+        # UPDATE THESE with your Unity Catalog table paths
+        "train_table": "my_catalog.my_schema.train_documents",
+        "val_table": "my_catalog.my_schema.val_documents",
         "text_column": "text",
         "replay_ratio": 0.2,
         "replay_dataset": "cerebras/SlimPajama-627B",
@@ -91,66 +90,24 @@ config = {
 # COMMAND ----------
 
 from datasets import Dataset
-import pandas as pd
 
-catalog = config["data"]["catalog"]
-schema = config["data"]["schema"]
 text_column = config["data"]["text_column"]
-val_ratio = config["data"]["val_ratio"]
 
+# Load training data
+train_table = config["data"]["train_table"]
+print(f"Loading training data from: {train_table}")
+train_pdf = spark.table(train_table).select(text_column).toPandas()
+train_pdf = train_pdf.rename(columns={text_column: "text"}).dropna(subset=["text"])
+domain_train = Dataset.from_pandas(train_pdf)
+print(f"Training samples: {len(domain_train)}")
 
-def find_text_column(spark_df, preferred_column="text"):
-    """Find the best text column in a Spark DataFrame."""
-    columns = [f.name for f in spark_df.schema.fields]
-    string_columns = [
-        f.name for f in spark_df.schema.fields
-        if str(f.dataType) == "StringType"
-    ]
-    if preferred_column in columns:
-        return preferred_column
-    common_names = ["text", "content", "text_content", "body", "document", "doc_text"]
-    for name in common_names:
-        if name in columns:
-            return name
-    if string_columns:
-        return string_columns[0]
-    return None
-
-
-# Load ALL tables from dev_europa.gold_roses
-tables = spark.catalog.listTables(f"{catalog}.{schema}")
-table_names = [t.name for t in tables]
-print(f"Found {len(table_names)} tables in {catalog}.{schema}: {table_names}")
-
-all_texts = []
-
-for table_name in table_names:
-    full_table = f"{catalog}.{schema}.{table_name}"
-    try:
-        df = spark.table(full_table)
-        col = find_text_column(df, text_column)
-        if col is None:
-            print(f"  Skipping {table_name} — no text column found")
-            continue
-        pdf = df.select(col).toPandas()
-        pdf = pdf.rename(columns={col: "text"})
-        pdf = pdf.dropna(subset=["text"])
-        pdf = pdf[pdf["text"].str.strip().astype(bool)]
-        print(f"  {table_name}: {len(pdf)} rows (column: '{col}')")
-        all_texts.append(pdf)
-    except Exception as e:
-        print(f"  Skipping {table_name} — error: {e}")
-        continue
-
-combined = pd.concat(all_texts, ignore_index=True)
-print(f"\nTotal rows loaded: {len(combined)}")
-
-# Convert to HuggingFace Dataset and split train/val
-full_dataset = Dataset.from_pandas(combined)
-split = full_dataset.train_test_split(test_size=val_ratio, seed=42)
-domain_train = split["train"]
-domain_val = split["test"]
-print(f"Split: {len(domain_train)} train, {len(domain_val)} validation")
+# Load validation data
+val_table = config["data"]["val_table"]
+print(f"Loading validation data from: {val_table}")
+val_pdf = spark.table(val_table).select(text_column).toPandas()
+val_pdf = val_pdf.rename(columns={text_column: "text"}).dropna(subset=["text"])
+domain_val = Dataset.from_pandas(val_pdf)
+print(f"Validation samples: {len(domain_val)}")
 
 # COMMAND ----------
 

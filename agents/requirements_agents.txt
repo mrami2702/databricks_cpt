@@ -1,0 +1,26 @@
+# Agent system dependencies
+# Install with: pip install -r agents/requirements_agents.txt
+# These are separate from the training requirements (requirements.txt)
+# to keep the agent system lean — no torch/transformers/peft/bitsandbytes
+
+# Google ADK (Agent Development Kit)
+google-adk>=1.0.0
+
+# Claude via Vertex AI (required for ADK's Claude class)
+anthropic[vertex]>=0.40.0
+
+# Vertex AI SDK (for vertexai.init())
+google-cloud-aiplatform>=1.60.0
+
+# Databricks
+databricks-sdk>=0.12.0
+databricks-sql-connector>=2.9.0
+
+# HTTP (Serper API + future Mistral endpoint)
+requests>=2.31.0
+
+# Env management
+python-dotenv>=1.0.0
+
+# Data utilities
+pandas>=2.0.0
