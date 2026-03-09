@@ -558,6 +558,72 @@ the simpler fixes have been validated.
 
 ---
 
+## NEXT UP: Remove Hard Geospatial Dependency in EDX Agent
+
+The geospatial filter is currently baked in as a hard requirement across the EDX agent,
+which means relevant datasets are being silently discarded if a publisher didn't set the
+`geospatial=true` metadata flag. Three targeted changes fix this — all low risk, no new
+dependencies, no structural changes.
+
+### What to change
+
+**1. `agents/tools/edx_tools.py` — flip the default in `search_edx_multi_criteria`**
+```python
+# Current:
+def search_edx_multi_criteria(criteria, require_geospatial: bool = True, ...):
+
+# Change to:
+def search_edx_multi_criteria(criteria, require_geospatial: bool = False, ...):
+```
+This is the primary search tool. With `True` as default it silently throws away all
+non-geospatial results. Flipping to `False` means the agent sees the full result set
+and can surface both geospatial and non-geospatial datasets. The parameter still exists
+so the agent can pass `require_geospatial=True` if a user explicitly asks for mappable data.
+
+**2. `agents/agents/edx_data_discovery_agent.py` — update instruction**
+
+Remove the hard requirement language:
+```
+# Remove this line from IMPORTANT CONTEXT:
+"Geospatial = has coordinates, bounding boxes, map-able data — always required
+unless user explicitly says otherwise"
+```
+
+Replace with softer guidance:
+```
+"Note the is_geospatial flag on each result — flag it in your response so the user
+knows which datasets have coordinates. Prioritize geospatial datasets only if the
+user explicitly needs mappable or joinable-by-location data."
+```
+
+Also update the `search_edx_multi_criteria` routing example to drop `require_geospatial=True`:
+```
+# Current in instruction:
+→ search_edx_multi_criteria(criteria=[X, Y, Z], require_geospatial=True)
+
+# Change to:
+→ search_edx_multi_criteria(criteria=[X, Y, Z])
+```
+
+**3. `agents/agents/edx_data_discovery_agent.py` — update description**
+```python
+# Current:
+"Specialist agent for discovering external geospatial and geological datasets..."
+
+# Change to:
+"Specialist agent for discovering external geological and energy datasets..."
+```
+The root agent reads this description to decide routing. Removing "geospatial" stops
+biasing Claude toward geospatial-only queries before the agent even starts.
+
+### What stays the same
+- `is_geospatial` field stays on every result — still useful as informational context
+- `search_edx_geospatial` tool stays — for when user explicitly wants mappable data
+- `search_edx_by_format("Shapefile")` stays — for explicit spatial format requests
+- The `require_geospatial` parameter stays in `search_edx_multi_criteria` — just not True by default
+
+---
+
 ## MEDIUM PRIORITY
 
 ### Optional: run_model_prediction tool
@@ -611,3 +677,36 @@ the ScientificAdvisorAgent is live and response latency becomes noticeable.
 `InMemorySessionService` resets on each `main.py` run. For long research workflows,
 persistent session storage would allow users to continue conversations.
 Google ADK supports custom `SessionService` implementations.
+
+### Parallel workflows (Google ADK ParallelAgent)
+
+The current `LlmAgent` root orchestrator is sequential — one sub-agent at a time.
+Google ADK has a `ParallelAgent` class that fans out to multiple agents concurrently.
+Not a full replacement for the orchestrator (sequential chains like CatalogAgent →
+EDXAgent are inherently dependent), but there are two targeted wins worth revisiting:
+
+**1. Parallel multi-search inside the EDX agent**
+When a user asks about a topic, the EDX agent currently runs searches one at a time
+(multi-criteria, then geospatial, then tag). These are all independent CKAN API calls.
+Use `asyncio.gather` inside a tool function to fire them simultaneously, deduplicate
+results by dataset ID, and return a combined ranked pool. Estimated 2–3× speed
+improvement for EDX discovery queries. No ADK restructuring needed — stays within
+the existing tool pattern.
+
+**2. ParallelAgent bundle at root for pure gather queries**
+For queries like "find papers AND find external datasets AND check our schema" —
+three fully independent tasks — wrap Scholar + EDX + Catalog in a `ParallelAgent`,
+expose it as an `AgentTool` on root. LLM chooses it for broad research queries;
+continues using individual agents for dependent chains.
+
+**Key gotchas to remember when implementing:**
+- Agent instances can only have one parent — can't reuse the same instance in both
+  a `ParallelAgent` and as an `AgentTool` on root; need separate instances
+- Sub-agents write to shared `session.state` using `output_key` — use unique keys
+  per agent to avoid collisions (e.g., `"edx_results"`, `"scholar_results"`)
+- `ParallelAgent` sub_agents list is fixed at construction time — not dynamic
+- For dynamic parallel execution, use `asyncio.gather` inside a `CustomAgent`
+  rather than `ParallelAgent`
+
+Full discussion: see conversation context — covered trade-offs vs current architecture,
+when parallel helps vs when sequential is still required, and suggested implementation order.

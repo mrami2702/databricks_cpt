@@ -134,6 +134,54 @@ class DatabricksSDKClient:
         )
         return self._get_ws().jobs.submit(tasks=[task])
 
+    # -------------------------------------------------------------------------
+    # Genie Space operations
+    # -------------------------------------------------------------------------
+
+    def create_genie_space(self, title: str, description: str, warehouse_id: str) -> dict:
+        space = self._get_ws().genie.create_space(
+            title=title, description=description, warehouse_id=warehouse_id
+        )
+        return {"space_id": space.space_id, "title": space.title}
+
+    def list_genie_spaces(self) -> list[dict]:
+        spaces = list(self._get_ws().genie.list_spaces())
+        return [
+            {
+                "space_id": s.space_id,
+                "title": s.title,
+                "description": s.description or "",
+            }
+            for s in spaces
+        ]
+
+    def get_genie_space(self, space_id: str) -> dict:
+        s = self._get_ws().genie.get_space(space_id=space_id)
+        return {
+            "space_id": s.space_id,
+            "title": s.title,
+            "description": s.description or "",
+        }
+
+    def query_genie_space(self, space_id: str, question: str) -> dict:
+        """Stateless NL query. start_conversation_and_wait() handles async polling."""
+        response = self._get_ws().genie.start_conversation_and_wait(
+            space_id=space_id, content=question
+        )
+        answer_text, generated_sql = "", ""
+        if response.attachments:
+            for att in response.attachments:
+                if hasattr(att, "query") and att.query:
+                    generated_sql = att.query.query or ""
+                if hasattr(att, "text") and att.text:
+                    answer_text = att.text.content or ""
+        return {
+            "question": question,
+            "answer": answer_text,
+            "generated_sql": generated_sql,
+            "status": str(response.status) if response.status else "COMPLETED",
+        }
+
 
 _client: DatabricksSDKClient | None = None
 

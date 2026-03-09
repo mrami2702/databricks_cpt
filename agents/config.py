@@ -18,6 +18,16 @@ DATABRICKS_SCHEMA: str = os.getenv("DATABRICKS_SCHEMA", "gold_roses")
 # SQL Warehouse HTTP path — found in cluster config > JDBC/ODBC tab
 # Format: /sql/1.0/warehouses/<warehouse-id>
 DATABRICKS_HTTP_PATH: str = os.getenv("DATABRICKS_HTTP_PATH", "")
+# Warehouse ID extracted from the HTTP path above — used by Genie Space creation
+DATABRICKS_WAREHOUSE_ID: str = (
+    DATABRICKS_HTTP_PATH.rstrip("/").split("/")[-1]
+    if DATABRICKS_HTTP_PATH else ""
+)
+
+# Notebook workspace paths — upload the .py files in notebooks/ to Databricks, then set these
+EDA_NOTEBOOK_PATH: str = os.getenv("EDA_NOTEBOOK_PATH", "/Shared/eda_notebook")
+GENIE_NOTEBOOK_PATH: str = os.getenv("GENIE_NOTEBOOK_PATH", "/Shared/genie_notebook")
+AUTOML_NOTEBOOK_PATH: str = os.getenv("AUTOML_NOTEBOOK_PATH", "/Shared/automl_notebook")
 
 # Fine-tuned Mistral serving endpoint (deferred — set when deploying scientific_advisor_agent)
 FINE_TUNED_ENDPOINT: str = os.getenv("FINE_TUNED_ENDPOINT", "")
@@ -44,4 +54,7 @@ def validate_config() -> list[str]:
         ("DATABRICKS_TOKEN", DATABRICKS_TOKEN),
         ("GOOGLE_CLOUD_PROJECT", GOOGLE_CLOUD_PROJECT),
     ]
-    return [name for name, val in required if not val]
+    missing = [name for name, val in required if not val]
+    if not DATABRICKS_WAREHOUSE_ID:
+        missing.append("DATABRICKS_HTTP_PATH (needed to derive DATABRICKS_WAREHOUSE_ID for Genie)")
+    return missing
